@@ -2,6 +2,8 @@
 
 A Blender addon for importing JuPedSim simulation SQLite files, visualizing agent trajectories and simulation geometry.
 
+![Addon Preview](images/preview.png)
+
 ## Features
 
 - **Import JuPedSim SQLite files**: Load trajectory data and walkable area geometry
