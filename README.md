@@ -16,7 +16,7 @@ A Blender addon for importing JuPedSim simulation SQLite files, visualizing agen
 - **Blender 4.0+** (tested with Blender 4.0 and later)
 - **Python packages**: `pedpy`, `numpy<2.0` (installed automatically via addon)
 
-> **Note:** While `pedpy` currently only used to open sqlite files, something that pandas can also do natively, we include it for maintainability and to prepare for future features that will leverage its visualization and processing capabilities.
+> **Note:** While `pedpy` is currently only used to open sqlite files, something that pandas can also do natively, we include it for maintainability and to prepare for future features that will leverage its visualization and processing capabilities.
 
 ## Installation
 
