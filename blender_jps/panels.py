@@ -66,6 +66,26 @@ class JUPEDSIM_PT_main_panel(Panel):
                     text="Load Simulation", 
                     icon='IMPORT')
         
+        layout.separator()
+        
+        # Display options (only show if agents are loaded)
+        if "JuPedSim_Agents" in bpy.data.collections:
+            agents_collection = bpy.data.collections["JuPedSim_Agents"]
+            # Check for path objects in the collection
+            path_objects = [obj for obj in agents_collection.objects if obj.name.startswith("Path_Agent_")]
+            # Also check for agent objects to determine if simulation was loaded
+            agent_objects = [obj for obj in agents_collection.objects if obj.name.startswith("Agent_")]
+            
+            # Show checkbox if we have agents (paths should exist if agents exist)
+            if agent_objects:
+                box = layout.box()
+                box.label(text="Display Options", icon='HIDE_OFF')
+                row = box.row()
+                row.prop(props, "show_paths", text="Show Agent Paths")
+                if path_objects:
+                    # Show count of paths
+                    box.label(text=f"({len(path_objects)} path curves)", icon='CURVE_DATA')
+        
         # Info section
         layout.separator()
         box = layout.box()
