@@ -594,6 +594,18 @@ class JUPEDSIM_OT_load_simulation(Operator):
         """Create curves from the walkable area geometry."""
         # Support both pedpy geometry and raw shapely geometry
         polygon = geometry.polygon if hasattr(geometry, "polygon") else geometry
+
+        # Ensure viewport clip distance covers the geometry extent
+        bounds = polygon.bounds  # (minx, miny, maxx, maxy)
+        max_dim = max(bounds[2] - bounds[0], bounds[3] - bounds[1])
+        if max_dim > 0:
+            for window in context.window_manager.windows:
+                for area in window.screen.areas:
+                    if area.type != 'VIEW_3D':
+                        continue
+                    for space in area.spaces:
+                        if space.type == 'VIEW_3D' and space.clip_end < max_dim:
+                            space.clip_end = max_dim * 2
         
         # Create curves for exterior boundary
         self._create_curve_from_coords(
