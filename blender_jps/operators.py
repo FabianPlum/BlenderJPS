@@ -11,41 +11,85 @@ import pathlib
 import threading
 import time
 import traceback
+import sqlite3
 from array import array
 
 
-BIG_DATA_STATE = {
-    "positions": None,
+STREAM_STATE = {
+    "db_path": None,
+    "conn": None,
     "min_frame": 0,
     "max_frame": 0,
+    "frame_step": 1,
+    "agent_ids": [],
+    "id_to_index": {},
+    "mode": None,  # "default" or "big"
+    "objects": [],
     "object_name": None,
     "handler_installed": False,
 }
 
 
-def _big_data_frame_handler(scene):
-    """Update big data mesh vertices for the current frame."""
-    state = BIG_DATA_STATE
-    if not state["positions"] or not state["object_name"]:
-        return
-    obj = bpy.data.objects.get(state["object_name"])
-    if not obj or obj.type != 'MESH':
+def _stream_frame_handler(scene):
+    """Stream positions from sqlite for the current frame."""
+    state = STREAM_STATE
+    if not state["db_path"] or not state["agent_ids"]:
         return
     frame = scene.frame_current
+    if state["frame_step"] > 1 and frame % state["frame_step"] != 0:
+        return
     if frame < state["min_frame"] or frame > state["max_frame"]:
         return
-    frame_idx = frame - state["min_frame"]
-    positions = state["positions"][frame_idx]
-    if positions is None:
+
+    if state["conn"] is None:
+        state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
+
+    cur = state["conn"].cursor()
+    res = cur.execute(
+        "SELECT id, pos_x, pos_y FROM trajectory_data WHERE frame == (?) ORDER BY id ASC",
+        (frame,),
+    )
+    rows = res.fetchall()
+
+    if state["mode"] == "big":
+        obj = bpy.data.objects.get(state["object_name"])
+        if not obj or obj.type != 'MESH':
+            return
+        total = len(state["agent_ids"])
+        hide_z = -1.0e6
+        coords = array('f', [0.0] * (total * 3))
+        for i in range(2, len(coords), 3):
+            coords[i] = hide_z
+        for agent_id, x, y in rows:
+            idx = state["id_to_index"].get(agent_id)
+            if idx is None:
+                continue
+            base = idx * 3
+            coords[base] = float(x)
+            coords[base + 1] = float(y)
+            coords[base + 2] = 0.5
+        obj.data.vertices.foreach_set("co", coords)
+        obj.data.update()
         return
-    obj.data.vertices.foreach_set("co", positions)
-    obj.data.update()
+
+    # Default mode: update agent objects directly.
+    for obj in state["objects"]:
+        obj.hide_viewport = True
+        obj.hide_render = True
+    for agent_id, x, y in rows:
+        idx = state["id_to_index"].get(agent_id)
+        if idx is None:
+            continue
+        obj = state["objects"][idx]
+        obj.location = (float(x), float(y), 0.5)
+        obj.hide_viewport = False
+        obj.hide_render = False
 
 
 def check_dependencies():
     """Check if required dependencies are installed."""
     try:
-        import pedpy
+        import shapely
         return True, None
     except ImportError as e:
         return False, str(e)
@@ -202,7 +246,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
             props.loading_message = "Creating agents..."
             if self._step_create_agents(context):
                 self._timed_end("create_agents")
-                self._stage = "create_paths"
+                self._stage = "finalize"
 
         if self._stage == "create_big_data":
             props.loading_message = "Building frame buffers..."
@@ -224,6 +268,13 @@ class JUPEDSIM_OT_load_simulation(Operator):
             self._timed_start("finalize")
             show_paths = props.show_paths
             self._update_path_visibility(self._agents_collection, show_paths)
+            if not self._big_data_mode:
+                objects = []
+                for agent_id in self._agent_groups:
+                    obj = bpy.data.objects.get(f"Agent_{agent_id}")
+                    if obj:
+                        objects.append(obj)
+                self._start_streaming("default", objects=objects)
             self._timed_end("finalize")
             props.loading_progress = 100.0
             props.loading_message = "Load complete"
@@ -256,7 +307,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         self._total_agents = 0
         self._stage = None
         self._big_data_mode = False
-        self._clear_big_data_state()
+        self._clear_stream_state()
 
     def _finish_success(self, context):
         """Finalize a successful load."""
@@ -291,25 +342,26 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 print(f"[BlenderJPS] {key} took {self._timings[key]:.3f}s (cancelled)")
 
     def _load_sqlite_worker(self, path, frame_step, cancel_event):
-        """Load data in a worker thread to keep UI responsive."""
-        from pedpy import (
-            load_trajectory_from_jupedsim_sqlite,
-            load_walkable_area_from_jupedsim_sqlite,
-        )
+        """Load metadata and geometry in a worker thread to keep UI responsive."""
+        import shapely
+        conn = None
         try:
             timings = {}
             start_total = time.perf_counter()
 
             start = time.perf_counter()
-            traj_data = load_trajectory_from_jupedsim_sqlite(trajectory_file=path)
-            timings["load_trajectory_sqlite"] = time.perf_counter() - start
+            conn = sqlite3.connect(str(path), isolation_level=None)
+            timings["open_sqlite"] = time.perf_counter() - start
             if cancel_event.is_set():
                 self._worker_timings = timings
                 self._worker_done = True
                 return
 
             start = time.perf_counter()
-            geometry = load_walkable_area_from_jupedsim_sqlite(trajectory_file=path)
+            cur = conn.cursor()
+            res = cur.execute("SELECT wkt FROM geometry")
+            geometries = [shapely.from_wkt(s[0]) for s in res.fetchall()]
+            geometry = shapely.union_all(geometries)
             timings["load_geometry_sqlite"] = time.perf_counter() - start
             if cancel_event.is_set():
                 self._worker_timings = timings
@@ -317,38 +369,38 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 return
 
             start = time.perf_counter()
-            df = traj_data.data
-            agent_groups = list(df.groupby('id'))
-            frames = sorted(df['frame'].unique())
-            min_frame = int(frames[0]) if frames else 0
-            max_frame = int(frames[-1]) if frames else 0
-            sampled_frames = set(frames[::frame_step]) if frames else set()
-            timings["prepare_agent_groups"] = time.perf_counter() - start
+            res = cur.execute("SELECT MIN(frame), MAX(frame) FROM trajectory_data")
+            min_frame, max_frame = res.fetchone()
+            min_frame = int(min_frame) if min_frame is not None else 0
+            max_frame = int(max_frame) if max_frame is not None else 0
+            timings["read_frame_range"] = time.perf_counter() - start
+            if cancel_event.is_set():
+                self._worker_timings = timings
+                self._worker_done = True
+                return
 
-            frame_positions = None
-            agent_ids = None
-            if self._big_data_mode:
-                start = time.perf_counter()
-                frame_positions, agent_ids = self._build_frame_positions_from_df(
-                    df, min_frame, max_frame, frame_step
-                )
-                timings["build_frame_positions"] = time.perf_counter() - start
-                print(
-                    "[BlenderJPS] build frame positions "
-                    f"(frames={len(frame_positions)}, agents={len(agent_ids)}) "
-                    f"took {timings['build_frame_positions']:.3f}s"
-                )
+            start = time.perf_counter()
+            res = cur.execute("SELECT DISTINCT id FROM trajectory_data ORDER BY id ASC")
+            agent_ids = [row[0] for row in res.fetchall()]
+            timings["read_agent_ids"] = time.perf_counter() - start
+
+            start = time.perf_counter()
+            res = cur.execute("SELECT value FROM metadata WHERE key == 'fps'")
+            fps = float(res.fetchone()[0])
+            res = cur.execute("SELECT count(*) FROM frame_data")
+            num_frames = int(res.fetchone()[0])
+            timings["read_metadata"] = time.perf_counter() - start
 
             timings["load_sqlite_total"] = time.perf_counter() - start_total
 
             self._worker_data = {
                 "geometry": geometry,
-                "agent_groups": agent_groups,
+                "agent_ids": agent_ids,
                 "min_frame": min_frame,
                 "max_frame": max_frame,
-                "sampled_frames": sampled_frames,
-                "frame_positions": frame_positions,
-                "agent_ids": agent_ids,
+                "fps": fps,
+                "num_frames": num_frames,
+                "db_path": str(path),
             }
             self._worker_timings = timings
             self._worker_done = True
@@ -356,48 +408,18 @@ class JUPEDSIM_OT_load_simulation(Operator):
             self._worker_error = str(e)
             self._worker_traceback = traceback.format_exc()
             self._worker_done = True
+        finally:
+            if conn is not None:
+                conn.close()
 
-    def _build_frame_positions_from_df(
-        self, df, min_frame, max_frame, frame_step
-    ):
-        """Build per-frame vertex arrays for big data mode from a DataFrame."""
-        agent_ids = sorted(df['id'].unique())
-        agent_index = {agent_id: idx for idx, agent_id in enumerate(agent_ids)}
-        frame_count = max_frame - min_frame + 1
-        hide_z = -1.0e6
-        positions_by_frame = []
-        for _ in range(frame_count):
-            frame_array = array('f', [0.0] * (len(agent_ids) * 3))
-            for i in range(2, len(frame_array), 3):
-                frame_array[i] = hide_z
-            positions_by_frame.append(frame_array)
-
-        x_col = 'x' if 'x' in df.columns else 'pos_x'
-        y_col = 'y' if 'y' in df.columns else 'pos_y'
-
-        for row in df[[x_col, y_col, 'frame', 'id']].itertuples(index=False):
-            x, y, frame, agent_id = row
-            if frame_step > 1 and frame % frame_step != 0:
-                continue
-            frame_idx = int(frame) - min_frame
-            if frame_idx < 0 or frame_idx >= frame_count:
-                continue
-            idx = agent_index[agent_id]
-            base_offset = idx * 3
-            arr = positions_by_frame[frame_idx]
-            arr[base_offset] = float(x)
-            arr[base_offset + 1] = float(y)
-            arr[base_offset + 2] = 0.5
-
-        return positions_by_frame, agent_ids
 
     def _apply_worker_data(self, context):
         """Apply worker results to the modal state."""
-        self._agent_groups = self._worker_data["agent_groups"]
+        self._agent_groups = self._worker_data["agent_ids"]
         self._total_agents = len(self._agent_groups)
         self._min_frame = self._worker_data["min_frame"]
         self._max_frame = self._worker_data["max_frame"]
-        self._sampled_frames = self._worker_data["sampled_frames"]
+        self._sampled_frames = set()
         context.scene.jupedsim_props.loaded_agent_count = self._total_agents
         context.scene.frame_start = self._min_frame
         context.scene.frame_end = self._max_frame
@@ -416,8 +438,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
         start = self._agent_index
         end = min(self._total_agents, start + chunk_size)
         for idx in range(start, end):
-            agent_id, agent_data = self._agent_groups[idx]
-            self._create_agent(context, agent_id, agent_data, self._agents_collection)
+            agent_id = self._agent_groups[idx]
+            self._create_agent(context, agent_id, self._agents_collection)
         self._agent_index = end
         progress = 25.0 + (self._agent_index / max(1, self._total_agents)) * 45.0
         context.scene.jupedsim_props.loading_progress = min(progress, 70.0)
@@ -466,16 +488,40 @@ class JUPEDSIM_OT_load_simulation(Operator):
         if trace:
             print(trace)
 
-    def _clear_big_data_state(self):
-        """Remove frame handlers and clear big data buffers."""
-        if BIG_DATA_STATE["handler_installed"]:
-            if _big_data_frame_handler in bpy.app.handlers.frame_change_pre:
-                bpy.app.handlers.frame_change_pre.remove(_big_data_frame_handler)
-        BIG_DATA_STATE["positions"] = None
-        BIG_DATA_STATE["min_frame"] = 0
-        BIG_DATA_STATE["max_frame"] = 0
-        BIG_DATA_STATE["object_name"] = None
-        BIG_DATA_STATE["handler_installed"] = False
+    def _start_streaming(self, mode, objects=None, object_name=None):
+        """Register streaming handler and state."""
+        STREAM_STATE["db_path"] = self._worker_data["db_path"]
+        STREAM_STATE["min_frame"] = self._min_frame
+        STREAM_STATE["max_frame"] = self._max_frame
+        STREAM_STATE["frame_step"] = self._frame_step
+        STREAM_STATE["agent_ids"] = list(self._agent_groups)
+        STREAM_STATE["id_to_index"] = {
+            agent_id: idx for idx, agent_id in enumerate(self._agent_groups)
+        }
+        STREAM_STATE["mode"] = mode
+        STREAM_STATE["objects"] = objects or []
+        STREAM_STATE["object_name"] = object_name
+        if not STREAM_STATE["handler_installed"]:
+            bpy.app.handlers.frame_change_pre.append(_stream_frame_handler)
+            STREAM_STATE["handler_installed"] = True
+
+    def _clear_stream_state(self):
+        """Remove frame handlers and clear streaming buffers."""
+        if STREAM_STATE["handler_installed"]:
+            if _stream_frame_handler in bpy.app.handlers.frame_change_pre:
+                bpy.app.handlers.frame_change_pre.remove(_stream_frame_handler)
+        if STREAM_STATE["conn"] is not None:
+            STREAM_STATE["conn"].close()
+        STREAM_STATE["db_path"] = None
+        STREAM_STATE["conn"] = None
+        STREAM_STATE["min_frame"] = 0
+        STREAM_STATE["max_frame"] = 0
+        STREAM_STATE["agent_ids"] = []
+        STREAM_STATE["id_to_index"] = {}
+        STREAM_STATE["mode"] = None
+        STREAM_STATE["objects"] = []
+        STREAM_STATE["object_name"] = None
+        STREAM_STATE["handler_installed"] = False
     
     def _get_or_create_collection(self, name):
         """Get or create a collection with the given name."""
@@ -489,8 +535,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
             bpy.context.scene.collection.children.link(collection)
         return collection
     
-    def _create_agent(self, context, agent_id, agent_data, collection):
-        """Create an animated empty object for a single agent."""
+    def _create_agent(self, context, agent_id, collection):
+        """Create an empty object for a single agent (streamed positions)."""
         # Create an empty object for the agent (much faster than mesh)
         empty_obj = bpy.data.objects.new(f"Agent_{agent_id}", None)
         empty_obj.empty_display_type = 'SPHERE'
@@ -499,51 +545,14 @@ class JUPEDSIM_OT_load_simulation(Operator):
         # Add to collection
         collection.objects.link(empty_obj)
         
-        # Track the last frame this agent appears in
-        last_agent_frame = None
-        
-        x_col = 'x' if 'x' in agent_data.columns else 'pos_x'
-        y_col = 'y' if 'y' in agent_data.columns else 'pos_y'
-
-        # Add keyframes for sampled frames only
-        for _, row in agent_data.iterrows():
-            frame = int(row['frame'])
-            if frame not in self._sampled_frames:
-                continue
-
-            x = float(row[x_col])
-            y = float(row[y_col])
-            z = 0.5
-
-            empty_obj.location = (x, y, z)
-            empty_obj.keyframe_insert(data_path="location", frame=frame)
-
-            if last_agent_frame is None or frame > last_agent_frame:
-                last_agent_frame = frame
-        
-        if empty_obj.animation_data and empty_obj.animation_data.action:
-            for fcurve in empty_obj.animation_data.action.fcurves:
-                for keyframe in fcurve.keyframe_points:
-                    keyframe.interpolation = 'LINEAR'
-        
-        if last_agent_frame is not None and last_agent_frame < self._max_frame:
-            empty_obj.hide_viewport = False
-            empty_obj.hide_render = False
-            empty_obj.keyframe_insert(data_path="hide_viewport", frame=last_agent_frame)
-            empty_obj.keyframe_insert(data_path="hide_render", frame=last_agent_frame)
-            
-            empty_obj.hide_viewport = True
-            empty_obj.hide_render = True
-            empty_obj.keyframe_insert(data_path="hide_viewport", frame=last_agent_frame + 1)
-            empty_obj.keyframe_insert(data_path="hide_render", frame=last_agent_frame + 1)
-            
-            empty_obj.hide_viewport = False
-            empty_obj.hide_render = False
+        # Initial state; positions are streamed per frame.
+        empty_obj.hide_viewport = True
+        empty_obj.hide_render = True
     
     def _create_geometry(self, context, geometry, collection):
         """Create curves from the walkable area geometry."""
-        # Get the shapely polygon from the walkable area
-        polygon = geometry.polygon
+        # Support both pedpy geometry and raw shapely geometry
+        polygon = geometry.polygon if hasattr(geometry, "polygon") else geometry
         
         # Create curves for exterior boundary
         self._create_curve_from_coords(
@@ -646,30 +655,26 @@ class JUPEDSIM_OT_load_simulation(Operator):
     
     def _create_big_data_points(self, context):
         """Create a single mesh driven by frame-change handler."""
-        if not self._worker_data or not self._worker_data.get("frame_positions"):
+        if not self._worker_data:
             return
-        frame_positions = self._worker_data["frame_positions"]
-        agent_ids = self._worker_data["agent_ids"] or []
+        agent_ids = self._agent_groups or []
         if not agent_ids:
             return
 
         mesh = bpy.data.meshes.new("JuPedSim_Particles")
         mesh.vertices.add(len(agent_ids))
-        mesh.vertices.foreach_set("co", frame_positions[0])
+        hide_z = -1.0e6
+        coords = array('f', [0.0] * (len(agent_ids) * 3))
+        for i in range(2, len(coords), 3):
+            coords[i] = hide_z
+        mesh.vertices.foreach_set("co", coords)
         mesh.update()
 
         obj = bpy.data.objects.new("JuPedSim_Particles", mesh)
         obj.display_type = 'WIRE'
         obj.show_in_front = True
         self._agents_collection.objects.link(obj)
-
-        BIG_DATA_STATE["positions"] = frame_positions
-        BIG_DATA_STATE["min_frame"] = self._min_frame
-        BIG_DATA_STATE["max_frame"] = self._max_frame
-        BIG_DATA_STATE["object_name"] = obj.name
-        if not BIG_DATA_STATE["handler_installed"]:
-            bpy.app.handlers.frame_change_pre.append(_big_data_frame_handler)
-            BIG_DATA_STATE["handler_installed"] = True
+        self._start_streaming("big", object_name=obj.name)
     
     def _update_path_visibility(self, collection, visible):
         """Update visibility of all agent path curves in the collection."""
