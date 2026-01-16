@@ -634,7 +634,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
                         continue
                     for space in area.spaces:
                         if space.type == 'VIEW_3D' and space.clip_end < max_dim:
-                            space.clip_end = max_dim * 2
+                            space.clip_end = max_dim * 4
 
         # Create a ground plane at origin, expanded 10% beyond geometry bounds.
         span_x = max(bounds[2] - bounds[0], 0.0)
@@ -818,7 +818,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         )
         instance_obj.hide_viewport = False
         instance_obj.hide_render = False
-        instance_obj.display_type = 'WIRE'
+        instance_obj.display_type = 'SOLID'
         self._agents_collection.objects.link(instance_obj)
 
         ps_settings = bpy.data.particles.new("JuPedSim_Particles_Settings")
