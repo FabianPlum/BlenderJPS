@@ -147,6 +147,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
     _big_data_mode = False
     _load_full_paths = False
     _path_groups = None
+    _materials = None
     
     def execute(self, context):
         """Start a modal load that keeps the UI responsive."""
@@ -314,6 +315,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         self._big_data_mode = False
         self._load_full_paths = False
         self._path_groups = None
+        self._materials = None
         self._clear_stream_state()
 
     def _finish_success(self, context):
@@ -447,6 +449,28 @@ class JUPEDSIM_OT_load_simulation(Operator):
         if not self._big_data_mode:
             self._timed_start("create_agents")
 
+    def _get_or_create_material(self, name, rgba):
+        """Get or create a simple material with a viewport color."""
+        if self._materials is None:
+            self._materials = {}
+        if name in self._materials:
+            return self._materials[name]
+        mat = bpy.data.materials.get(name)
+        if mat is None:
+            mat = bpy.data.materials.new(name=name)
+        mat.use_nodes = False
+        mat.diffuse_color = rgba
+        self._materials[name] = mat
+        return mat
+
+    def _assign_material(self, obj, material):
+        """Assign a single material to an object's data."""
+        if not obj or not material:
+            return
+        if hasattr(obj.data, "materials"):
+            obj.data.materials.clear()
+            obj.data.materials.append(material)
+
     def _step_create_agents(self, context):
         """Create a small batch of agent objects per tick."""
         if self._agent_groups is None:
@@ -578,6 +602,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         mesh.update()
 
         agent_obj = bpy.data.objects.new(f"Agent_{agent_id}", mesh)
+        agent_material = self._get_or_create_material(
+            "JuPedSim_Agent_Material", (0.95, 0.7, 0.1, 1.0)
+        )
+        self._assign_material(agent_obj, agent_material)
         agent_obj.scale = (
             context.scene.jupedsim_props.agent_scale,
             context.scene.jupedsim_props.agent_scale,
@@ -607,7 +635,37 @@ class JUPEDSIM_OT_load_simulation(Operator):
                     for space in area.spaces:
                         if space.type == 'VIEW_3D' and space.clip_end < max_dim:
                             space.clip_end = max_dim * 2
-        
+
+        # Create a ground plane at origin, expanded 10% beyond geometry bounds.
+        span_x = max(bounds[2] - bounds[0], 0.0)
+        span_y = max(bounds[3] - bounds[1], 0.0)
+        if span_x > 0.0 and span_y > 0.0:
+            pad_x = span_x * 0.1
+            pad_y = span_y * 0.1
+            min_x = bounds[0] - pad_x
+            max_x = bounds[2] + pad_x
+            min_y = bounds[1] - pad_y
+            max_y = bounds[3] + pad_y
+
+            plane_mesh = bpy.data.meshes.new("JuPedSim_Ground_Plane_Mesh")
+            bm = bmesh.new()
+            verts = [
+                bm.verts.new((min_x, min_y, 0.0)),
+                bm.verts.new((max_x, min_y, 0.0)),
+                bm.verts.new((max_x, max_y, 0.0)),
+                bm.verts.new((min_x, max_y, 0.0)),
+            ]
+            bm.faces.new(verts)
+            bm.to_mesh(plane_mesh)
+            bm.free()
+            plane_obj = bpy.data.objects.new("JuPedSim_Ground_Plane", plane_mesh)
+            plane_obj.location = (0.0, 0.0, 0.0)
+            plane_material = self._get_or_create_material(
+                "JuPedSim_Ground_Plane_Material", (0.85, 0.85, 0.85, 1.0)
+            )
+            self._assign_material(plane_obj, plane_material)
+            collection.objects.link(plane_obj)
+
         # Create curves for exterior boundary
         self._create_curve_from_coords(
             context,
@@ -651,6 +709,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         
         # Create curve object
         curve_obj = bpy.data.objects.new(name, curve_data)
+        curve_material = self._get_or_create_material(
+            "JuPedSim_Geometry_Material", (0.2, 0.2, 0.2, 1.0)
+        )
+        self._assign_material(curve_obj, curve_material)
         
         # Add to collection
         collection.objects.link(curve_obj)
@@ -733,6 +795,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         instance_obj = bpy.data.objects.new(
             "JuPedSim_ParticleInstance", instance_mesh
         )
+        agent_material = self._get_or_create_material(
+            "JuPedSim_Agent_Material", (0.95, 0.7, 0.1, 1.0)
+        )
+        self._assign_material(instance_obj, agent_material)
         instance_obj.scale = (
             context.scene.jupedsim_props.agent_scale,
             context.scene.jupedsim_props.agent_scale,
