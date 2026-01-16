@@ -13,7 +13,6 @@ import time
 import traceback
 import sqlite3
 import bmesh
-import numpy as np
 from array import array
 
 
