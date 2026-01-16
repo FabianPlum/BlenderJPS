@@ -13,6 +13,7 @@ import time
 import traceback
 import sqlite3
 import bmesh
+import numpy as np
 from array import array
 
 
@@ -795,6 +796,18 @@ class JUPEDSIM_OT_load_simulation(Operator):
         instance_obj = bpy.data.objects.new(
             "JuPedSim_ParticleInstance", instance_mesh
         )
+        plane_obj = bpy.data.objects.get("JuPedSim_Ground_Plane")
+        if plane_obj:
+            bb = plane_obj.bound_box
+            center_x = (bb[0][0] + bb[6][0]) * 0.5
+            center_y = (bb[0][1] + bb[6][1]) * 0.5
+            instance_obj.location = (
+                center_x + plane_obj.location.x,
+                center_y + plane_obj.location.y,
+                -1.0,
+            )
+        else:
+            instance_obj.location = (0.0, 0.0, -1.0)
         agent_material = self._get_or_create_material(
             "JuPedSim_Agent_Material", (0.95, 0.7, 0.1, 1.0)
         )
