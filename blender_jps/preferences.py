@@ -79,7 +79,7 @@ class JUPEDSIM_OT_install_dependencies(bpy.types.Operator):
             subprocess.check_call(
                 [
                     py_exec, "-m", "pip", "install",
-                    "--target", _MODULES_DIR,
+                    "--target", DEPS_DIR,
                     "--upgrade",
                     "--no-user",
                     "pedpy",
