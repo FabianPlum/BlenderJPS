@@ -1,0 +1,60 @@
+name: Blender Add-on CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  addon-smoke-test:
+    runs-on: ubuntu-latest
+    env:
+      BLENDER_VERSION: "5.0.1"
+      BLENDER_MAJOR_DIR: "Blender5.0"
+      ADDON_MODULE: "blender_jps"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies (headless)
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            ca-certificates curl tar xz-utils \
+            libxi6 libxrender1 libxkbcommon0 libsm6 \
+            libgl1 libglib2.0-0
+
+      - name: Download Blender
+        run: |
+          set -euxo pipefail
+          TARBALL="blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+          URL="https://download.blender.org/release/${BLENDER_MAJOR_DIR}/${TARBALL}"
+
+          curl -L "$URL" -o "$TARBALL"
+          tar -xf "$TARBALL"
+
+          BLENDER_DIR="blender-${BLENDER_VERSION}-linux-x64"
+          echo "BLENDER_BIN=${GITHUB_WORKSPACE}/${BLENDER_DIR}/blender" >> "$GITHUB_ENV"
+
+          "$GITHUB_WORKSPACE/${BLENDER_DIR}/blender" --version
+
+      - name: Install pedpy into Blender Python
+        run: |
+          set -euxo pipefail
+          "$BLENDER_BIN" --background --python-expr "
+import subprocess, sys
+print('Blender Python:', sys.executable)
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'])
+subprocess.check_call([sys.executable, '-m', 'pip', 'install', 'pedpy'])
+print('pedpy installed OK')
+"
+
+      - name: Run add-on loading test
+        run: |
+          set -euxo pipefail
+          "$BLENDER_BIN" \
+            --background \
+            --factory-startup \
+            --python blender_jps/tests/test_plugin_loading.py \
+            -- --addon "${ADDON_MODULE}" --factory-startup
