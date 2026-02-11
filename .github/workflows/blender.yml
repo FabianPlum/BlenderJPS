@@ -55,3 +55,17 @@ jobs:
           PY
 
           "$BLENDER_BIN" --background --python /tmp/install_pedpy.py
+
+      - name: Run add-on loading test
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          "$BLENDER_BIN" \
+          --background \
+          --factory-startup \
+          --python blender_jps/tests/test_plugin_loading.py \
+          -- \
+          --addon "${ADDON_MODULE}" \
+          --factory-startup
+    
