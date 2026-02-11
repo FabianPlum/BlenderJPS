@@ -68,7 +68,14 @@ class JUPEDSIM_OT_install_dependencies(bpy.types.Operator):
             # Install into addon folder so the same user always sees addon + deps (no root needed)
             self.report({'INFO'}, "Installing pedpy and dependencies...")
             subprocess.check_call(
-                [py_exec, "-m", "pip", "install", "--target", _MODULES_DIR, "pedpy", "numpy<2.0"],
+                [
+                    py_exec, "-m", "pip", "install",
+                    "--target", _MODULES_DIR,
+                    "--upgrade",
+                    "--no-user",
+                    "pedpy",
+                    "numpy<2.0",
+                ],
                 timeout=300,
             )
             self.report({'INFO'}, "Dependencies installed. Close and reopen Blender.")
