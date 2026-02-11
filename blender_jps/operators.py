@@ -54,11 +54,11 @@ def _stream_frame_handler(scene):
 
     if state["mode"] == "big":
         obj = bpy.data.objects.get(state["object_name"])
-        if not obj or obj.type != 'MESH':
+        if not obj or obj.type != "MESH":
             return
         total = len(state["agent_ids"])
         hide_z = -1.0e6
-        coords = array('f', [0.0] * (total * 3))
+        coords = array("f", [0.0] * (total * 3))
         for i in range(2, len(coords), 3):
             coords[i] = hide_z
         for agent_id, x, y in rows:
@@ -91,6 +91,7 @@ def check_dependencies():
     """Check if required dependencies are installed."""
     try:
         import shapely
+
         return True, None
     except ImportError as e:
         return False, str(e)
@@ -98,31 +99,31 @@ def check_dependencies():
 
 class JUPEDSIM_OT_select_file(Operator, ImportHelper):
     """Select a JuPedSim SQLite trajectory file."""
-    
+
     bl_idname = "jupedsim.select_file"
     bl_label = "Select SQLite File"
     bl_description = "Browse for a JuPedSim trajectory SQLite file"
-    
+
     filter_glob: StringProperty(
         default="*.sqlite;*.db",
-        options={'HIDDEN'},
+        options={"HIDDEN"},
     )
-    
+
     def execute(self, context):
         """Store the selected SQLite file path in the scene properties."""
         context.scene.jupedsim_props.sqlite_file = self.filepath
-        self.report({'INFO'}, f"Selected file: {self.filepath}")
-        return {'FINISHED'}
+        self.report({"INFO"}, f"Selected file: {self.filepath}")
+        return {"FINISHED"}
 
 
 class JUPEDSIM_OT_load_simulation(Operator):
     """Load simulation data from the selected SQLite file."""
-    
+
     bl_idname = "jupedsim.load_simulation"
     bl_label = "Load Simulation"
     bl_description = "Load agent trajectories and geometry from the SQLite file"
-    bl_options = {'REGISTER', 'UNDO'}
-    
+    bl_options = {"REGISTER", "UNDO"}
+
     _timer = None
     _worker_thread = None
     _worker_done = False
@@ -148,34 +149,34 @@ class JUPEDSIM_OT_load_simulation(Operator):
     _load_full_paths = False
     _path_groups = None
     _materials = None
-    
+
     def execute(self, context):
         """Start a modal load that keeps the UI responsive."""
         # Check dependencies first
         deps_ok, error = check_dependencies()
         if not deps_ok:
-            self.report({'ERROR'}, f"Missing dependencies: {error}")
-            self.report({'ERROR'}, "Please install dependencies in addon preferences.")
-            return {'CANCELLED'}
-        
+            self.report({"ERROR"}, f"Missing dependencies: {error}")
+            self.report({"ERROR"}, "Please install dependencies in addon preferences.")
+            return {"CANCELLED"}
+
         props = context.scene.jupedsim_props
         if props.loading_in_progress:
-            self.report({'WARNING'}, "A load is already in progress")
-            return {'CANCELLED'}
-        
+            self.report({"WARNING"}, "A load is already in progress")
+            return {"CANCELLED"}
+
         # Get file path
         filepath = props.sqlite_file
         if not filepath:
-            self.report({'ERROR'}, "No SQLite file selected")
-            return {'CANCELLED'}
-        
+            self.report({"ERROR"}, "No SQLite file selected")
+            return {"CANCELLED"}
+
         filepath = bpy.path.abspath(filepath)
         path = pathlib.Path(filepath)
-        
+
         if not path.exists():
-            self.report({'ERROR'}, f"File not found: {filepath}")
-            return {'CANCELLED'}
-        
+            self.report({"ERROR"}, f"File not found: {filepath}")
+            return {"CANCELLED"}
+
         self._reset_state()
         self._frame_step = props.frame_step
         self._big_data_mode = props.big_data_mode
@@ -197,21 +198,21 @@ class JUPEDSIM_OT_load_simulation(Operator):
         wm = context.window_manager
         self._timer = wm.event_timer_add(0.1, window=context.window)
         wm.modal_handler_add(self)
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     def modal(self, context, event):
         """Advance loading stages and update progress."""
         props = context.scene.jupedsim_props
 
-        if event.type == 'ESC':
+        if event.type == "ESC":
             self._cancelled = True
             if self._cancel_event:
                 self._cancel_event.set()
             props.loading_message = "Cancelling..."
             return self._finish_cancel(context)
 
-        if event.type != 'TIMER':
-            return {'RUNNING_MODAL'}
+        if event.type != "TIMER":
+            return {"RUNNING_MODAL"}
 
         if self._cancelled:
             return self._finish_cancel(context)
@@ -222,7 +223,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
             props.loading_progress = 5.0
             if self._worker_done:
                 if self._worker_error:
-                    self.report({'ERROR'}, f"Failed to load simulation: {self._worker_error}")
+                    self.report({"ERROR"}, f"Failed to load simulation: {self._worker_error}")
                     self._print_worker_traceback()
                     return self._finish_cancel(context)
                 self._apply_worker_data(context)
@@ -285,10 +286,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
             props.loading_progress = 100.0
             props.loading_message = "Load complete"
             self._log_timings()
-            self.report({'INFO'}, "Simulation loaded successfully!")
+            self.report({"INFO"}, "Simulation loaded successfully!")
             return self._finish_success(context)
 
-        return {'RUNNING_MODAL'}
+        return {"RUNNING_MODAL"}
 
     def _reset_state(self):
         """Reset modal state for a new load."""
@@ -323,7 +324,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         self._cleanup_timer(context)
         props = context.scene.jupedsim_props
         props.loading_in_progress = False
-        return {'FINISHED'}
+        return {"FINISHED"}
 
     def _finish_cancel(self, context):
         """Finalize a cancelled load while keeping partial data."""
@@ -333,7 +334,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         props = context.scene.jupedsim_props
         props.loading_in_progress = False
         props.loading_message = "Load cancelled (partial data kept)"
-        return {'CANCELLED'}
+        return {"CANCELLED"}
 
     def _cleanup_timer(self, context):
         """Remove the modal timer."""
@@ -353,6 +354,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
     def _load_sqlite_worker(self, path, frame_step, cancel_event):
         """Load metadata and geometry in a worker thread to keep UI responsive."""
         import shapely
+
         conn = None
         try:
             timings = {}
@@ -432,7 +434,6 @@ class JUPEDSIM_OT_load_simulation(Operator):
             if conn is not None:
                 conn.close()
 
-
     def _apply_worker_data(self, context):
         """Apply worker results to the modal state."""
         self._agent_groups = self._worker_data["agent_ids"]
@@ -476,7 +477,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         if self._agent_groups is None:
             return True
         if self._agent_index == 0:
-            self.report({'INFO'}, f"Creating {self._total_agents} agents (every {self._frame_step} frame(s))...")
+            self.report(
+                {"INFO"},
+                f"Creating {self._total_agents} agents (every {self._frame_step} frame(s))...",
+            )
         chunk_size = 10
         start = self._agent_index
         end = min(self._total_agents, start + chunk_size)
@@ -551,8 +555,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
     def _load_full_path_groups(self, cursor, frame_step):
         """Load full path coordinates per agent using SQLite cursor."""
         res = cursor.execute(
-            "SELECT id, frame, pos_x, pos_y FROM trajectory_data "
-            "ORDER BY id ASC, frame ASC"
+            "SELECT id, frame, pos_x, pos_y FROM trajectory_data ORDER BY id ASC, frame ASC"
         )
         paths = {}
         for agent_id, frame, x, y in res.fetchall():
@@ -578,7 +581,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         STREAM_STATE["objects"] = []
         STREAM_STATE["object_name"] = None
         STREAM_STATE["handler_installed"] = False
-    
+
     def _get_or_create_collection(self, name):
         """Get or create a collection with the given name."""
         if name in bpy.data.collections:
@@ -590,7 +593,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
             collection = bpy.data.collections.new(name)
             bpy.context.scene.collection.children.link(collection)
         return collection
-    
+
     def _create_agent(self, context, agent_id, collection):
         """Create an icosphere object for a single agent (streamed positions)."""
         mesh = bpy.data.meshes.new(f"Agent_{agent_id}_Mesh")
@@ -618,7 +621,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         # Initial state; positions are streamed per frame.
         agent_obj.hide_viewport = True
         agent_obj.hide_render = True
-    
+
     def _create_geometry(self, context, geometry, collection):
         """Create curves from the walkable area geometry."""
         # Support both pedpy geometry and raw shapely geometry
@@ -630,10 +633,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         if max_dim > 0:
             for window in context.window_manager.windows:
                 for area in window.screen.areas:
-                    if area.type != 'VIEW_3D':
+                    if area.type != "VIEW_3D":
                         continue
                     for space in area.spaces:
-                        if space.type == 'VIEW_3D' and space.clip_end < max_dim:
+                        if space.type == "VIEW_3D" and space.clip_end < max_dim:
                             space.clip_end = max_dim * 4
 
         # Create a ground plane at origin, expanded 10% beyond geometry bounds.
@@ -672,94 +675,92 @@ class JUPEDSIM_OT_load_simulation(Operator):
             "Walkable_Area_Boundary",
             list(polygon.exterior.coords),
             collection,
-            closed=True
+            closed=True,
         )
-        
+
         # Create curves for any interior holes (obstacles)
         for i, interior in enumerate(polygon.interiors):
             self._create_curve_from_coords(
-                context,
-                f"Obstacle_{i}",
-                list(interior.coords),
-                collection,
-                closed=True
+                context, f"Obstacle_{i}", list(interior.coords), collection, closed=True
             )
-        
-        self.report({'INFO'}, f"Created geometry with {1 + len(list(polygon.interiors))} boundary curves")
-    
+
+        self.report(
+            {"INFO"}, f"Created geometry with {1 + len(list(polygon.interiors))} boundary curves"
+        )
+
     def _create_curve_from_coords(self, context, name, coords, collection, closed=False):
         """Create a curve object from a list of coordinates."""
         # Create curve data
-        curve_data = bpy.data.curves.new(name=name, type='CURVE')
-        curve_data.dimensions = '3D'
+        curve_data = bpy.data.curves.new(name=name, type="CURVE")
+        curve_data.dimensions = "3D"
         curve_data.resolution_u = 2
-        
+
         # Create spline
-        spline = curve_data.splines.new('POLY')
+        spline = curve_data.splines.new("POLY")
         spline.points.add(len(coords) - 1)  # One point already exists
-        
+
         # Set point coordinates (x, y, z, w)
         for i, coord in enumerate(coords):
             x, y = coord[0], coord[1]
             z = 0.0  # Ground level for geometry
             spline.points[i].co = (x, y, z, 1.0)
-        
+
         if closed:
             spline.use_cyclic_u = True
-        
+
         # Create curve object
         curve_obj = bpy.data.objects.new(name, curve_data)
         curve_material = self._get_or_create_material(
             "JuPedSim_Geometry_Material", (0.2, 0.2, 0.2, 1.0)
         )
         self._assign_material(curve_obj, curve_material)
-        
+
         # Add to collection
         collection.objects.link(curve_obj)
-        
+
         # Add some visual thickness to the curve
         curve_data.bevel_depth = context.scene.jupedsim_props.geometry_thickness
         curve_data.bevel_resolution = 2
-        
+
         return curve_obj
-    
+
     def _create_agent_path(self, context, agent_id, coords, collection):
         """Create a curve representing the path of an agent."""
-        
+
         if len(coords) < 2:
             return  # Need at least 2 points for a curve
-        
+
         # Create curve data
-        curve_data = bpy.data.curves.new(name=f"Path_Agent_{agent_id}", type='CURVE')
-        curve_data.dimensions = '3D'
+        curve_data = bpy.data.curves.new(name=f"Path_Agent_{agent_id}", type="CURVE")
+        curve_data.dimensions = "3D"
         curve_data.resolution_u = 2
-        
+
         # Create spline
-        spline = curve_data.splines.new('POLY')
+        spline = curve_data.splines.new("POLY")
         spline.points.add(len(coords) - 1)  # One point already exists
-        
+
         # Set point coordinates (x, y, z, w)
         for i, coord in enumerate(coords):
             spline.points[i].co = (*coord, 1.0)
-        
+
         # Path is not closed
         spline.use_cyclic_u = False
-        
+
         # Create curve object
         curve_obj = bpy.data.objects.new(f"Path_Agent_{agent_id}", curve_data)
-        
+
         # Add to collection
         collection.objects.link(curve_obj)
-        
+
         # Add visual thickness to the path curve (thinner than geometry)
         curve_data.bevel_depth = 0.02
         curve_data.bevel_resolution = 2
-        
+
         # Set material color (optional - can be customized)
         # For now, just make it visible but will be controlled by toggle
-        
+
         return curve_obj
-    
+
     def _create_big_data_points(self, context):
         """Create a single mesh driven by frame-change handler."""
         if not self._worker_data:
@@ -771,14 +772,14 @@ class JUPEDSIM_OT_load_simulation(Operator):
         mesh = bpy.data.meshes.new("JuPedSim_Particles")
         mesh.vertices.add(len(agent_ids))
         hide_z = -1.0e6
-        coords = array('f', [0.0] * (len(agent_ids) * 3))
+        coords = array("f", [0.0] * (len(agent_ids) * 3))
         for i in range(2, len(coords), 3):
             coords[i] = hide_z
         mesh.vertices.foreach_set("co", coords)
         mesh.update()
 
         obj = bpy.data.objects.new("JuPedSim_Particles", mesh)
-        obj.display_type = 'WIRE'
+        obj.display_type = "WIRE"
         obj.show_in_front = True
         self._agents_collection.objects.link(obj)
 
@@ -787,14 +788,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         bmesh.ops.create_icosphere(bm, subdivisions=1, radius=0.5)
         bm.to_mesh(instance_mesh)
         bm.free()
-        instance_mesh.polygons.foreach_set(
-            "use_smooth", [True] * len(instance_mesh.polygons)
-        )
+        instance_mesh.polygons.foreach_set("use_smooth", [True] * len(instance_mesh.polygons))
         instance_mesh.update()
 
-        instance_obj = bpy.data.objects.new(
-            "JuPedSim_ParticleInstance", instance_mesh
-        )
+        instance_obj = bpy.data.objects.new("JuPedSim_ParticleInstance", instance_mesh)
         plane_obj = bpy.data.objects.get("JuPedSim_Ground_Plane")
         if plane_obj:
             bb = plane_obj.bound_box
@@ -818,25 +815,27 @@ class JUPEDSIM_OT_load_simulation(Operator):
         )
         instance_obj.hide_viewport = False
         instance_obj.hide_render = False
-        instance_obj.display_type = 'SOLID'
+        instance_obj.display_type = "SOLID"
         self._agents_collection.objects.link(instance_obj)
 
         ps_settings = bpy.data.particles.new("JuPedSim_Particles_Settings")
-        ps_settings.type = 'HAIR'
+        ps_settings.type = "HAIR"
         ps_settings.count = len(agent_ids)
-        ps_settings.emit_from = 'VERT'
+        ps_settings.emit_from = "VERT"
         ps_settings.use_emit_random = False
-        ps_settings.render_type = 'OBJECT'
+        ps_settings.render_type = "OBJECT"
         ps_settings.instance_object = instance_obj
-        ps_settings.particle_size = 0.25 # magic number, ensures particles are same size as reference sphere
-        ps_settings.display_method = 'RENDER'
+        ps_settings.particle_size = (
+            0.25  # magic number, ensures particles are same size as reference sphere
+        )
+        ps_settings.display_method = "RENDER"
         ps_settings.display_percentage = 100
 
-        ps_mod = obj.modifiers.new("JuPedSimParticles", type='PARTICLE_SYSTEM')
+        ps_mod = obj.modifiers.new("JuPedSimParticles", type="PARTICLE_SYSTEM")
         ps_mod.particle_system.settings = ps_settings
 
         self._start_streaming("big", object_name=obj.name)
-    
+
     def _update_path_visibility(self, collection, visible):
         """Update visibility of all agent path curves in the collection."""
         for obj in collection.objects:
@@ -859,4 +858,3 @@ def register():
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-

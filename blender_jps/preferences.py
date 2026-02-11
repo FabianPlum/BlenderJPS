@@ -78,8 +78,12 @@ class JUPEDSIM_OT_install_dependencies(bpy.types.Operator):
             self.report({"INFO"}, f"Installing pedpy to {DEPS_DIR}...")
             subprocess.check_call(
                 [
-                    py_exec, "-m", "pip", "install",
-                    "--target", DEPS_DIR,
+                    py_exec,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--target",
+                    DEPS_DIR,
                     "--upgrade",
                     "--no-user",
                     "pedpy",
@@ -94,9 +98,7 @@ class JUPEDSIM_OT_install_dependencies(bpy.types.Operator):
             # Verify installation
             if is_pedpy_installed():
                 self.report({"INFO"}, "Dependencies installed successfully!")
-                self.report(
-                    {"INFO"}, "You may need to restart Blender if imports still fail."
-                )
+                self.report({"INFO"}, "You may need to restart Blender if imports still fail.")
             else:
                 self.report(
                     {"WARNING"},

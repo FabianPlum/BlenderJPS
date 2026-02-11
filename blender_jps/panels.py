@@ -11,49 +11,50 @@ from .preferences import is_pedpy_installed
 
 class JUPEDSIM_PT_main_panel(Panel):
     """Main panel for JuPedSim importer in the 3D Viewport sidebar."""
-    
+
     bl_label = "JuPedSim Importer"
     bl_idname = "JUPEDSIM_PT_main_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'JuPedSim'
-    
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "JuPedSim"
+
     def draw(self, context):
         layout = self.layout
         props = context.scene.jupedsim_props
-        
+
         # Check dependencies
         if not is_pedpy_installed():
             box = layout.box()
             box.alert = True
-            box.label(text="Dependencies not installed!", icon='ERROR')
+            box.label(text="Dependencies not installed!", icon="ERROR")
             box.label(text="Go to Edit > Preferences > Add-ons")
             box.label(text="Find 'BlenderJPS' and install dependencies")
             box.separator()
-            box.operator("jupedsim.install_dependencies", 
-                        text="Install Dependencies", 
-                        icon='IMPORT')
+            box.operator(
+                "jupedsim.install_dependencies", text="Install Dependencies", icon="IMPORT"
+            )
             return
-        
+
         # File selection section
         box = layout.box()
-        box.label(text="Trajectory File", icon='FILE')
-        
+        box.label(text="Trajectory File", icon="FILE")
+
         # Display selected file or prompt
         if props.sqlite_file:
             import os
+
             filename = os.path.basename(props.sqlite_file)
-            box.label(text=filename, icon='CHECKMARK')
+            box.label(text=filename, icon="CHECKMARK")
         else:
-            box.label(text="No file selected", icon='QUESTION')
-        
-        box.operator("jupedsim.select_file", text="Browse...", icon='FILEBROWSER')
-        
+            box.label(text="No file selected", icon="QUESTION")
+
+        box.operator("jupedsim.select_file", text="Browse...", icon="FILEBROWSER")
+
         layout.separator()
-        
+
         # Import options
         box = layout.box()
-        box.label(text="Import Options", icon='SETTINGS')
+        box.label(text="Import Options", icon="SETTINGS")
         row = box.row()
         row.prop(props, "frame_step", text="Load Every Nth Frame")
         row = box.row()
@@ -61,28 +62,26 @@ class JUPEDSIM_PT_main_panel(Panel):
         row = box.row()
         row.prop(props, "load_full_paths", text="Load Full Paths (slow)")
         if props.load_full_paths:
-            box.label(text="Warning: may take a long time on large files", icon='ERROR')
-        
+            box.label(text="Warning: may take a long time on large files", icon="ERROR")
+
         layout.separator()
-        
+
         # Load button
         row = layout.row()
         row.scale_y = 1.5
-        row.operator("jupedsim.load_simulation", 
-                    text="Load Simulation", 
-                    icon='IMPORT')
+        row.operator("jupedsim.load_simulation", text="Load Simulation", icon="IMPORT")
 
         if props.loading_in_progress:
             box = layout.box()
-            box.label(text=props.loading_message or "Loading...", icon='TIME')
+            box.label(text=props.loading_message or "Loading...", icon="TIME")
             box.prop(props, "loading_progress", text="Progress", slider=True)
-            box.label(text="Press Esc to cancel", icon='CANCEL')
-        
+            box.label(text="Press Esc to cancel", icon="CANCEL")
+
         layout.separator()
-        
+
         # Display options (always visible)
         box = layout.box()
-        box.label(text="Display Options", icon='HIDE_OFF')
+        box.label(text="Display Options", icon="HIDE_OFF")
         row = box.row()
         row.prop(props, "agent_scale", text="Agent Scale (m)")
         row = box.row()
@@ -96,47 +95,46 @@ class JUPEDSIM_PT_main_panel(Panel):
         if "JuPedSim_Agents" in bpy.data.collections:
             agents_collection = bpy.data.collections["JuPedSim_Agents"]
             path_objects = [
-                obj for obj in agents_collection.objects
-                if obj.name.startswith("Path_Agent_")
+                obj for obj in agents_collection.objects if obj.name.startswith("Path_Agent_")
             ]
             has_paths = bool(path_objects)
             if has_paths:
-                box.label(text=f"({len(path_objects)} path curves)", icon='CURVE_DATA')
+                box.label(text=f"({len(path_objects)} path curves)", icon="CURVE_DATA")
         row.enabled = props.load_full_paths and has_paths
-        
+
         # Info section
         layout.separator()
         box = layout.box()
-        box.label(text="Info", icon='INFO')
+        box.label(text="Info", icon="INFO")
         box.label(text="Agents → Animated spheres")
         box.label(text="Geometry → Curve boundaries")
 
 
 class JUPEDSIM_PT_info_panel(Panel):
     """Info panel showing loaded simulation statistics."""
-    
+
     bl_label = "Simulation Info"
     bl_idname = "JUPEDSIM_PT_info_panel"
-    bl_space_type = 'VIEW_3D'
-    bl_region_type = 'UI'
-    bl_category = 'JuPedSim'
-    bl_options = {'DEFAULT_CLOSED'}
-    
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"
+    bl_category = "JuPedSim"
+    bl_options = {"DEFAULT_CLOSED"}
+
     def draw(self, context):
         layout = self.layout
-        
+
         # Count agents and geometry
         agents_count = 0
         geometry_count = 0
-        
+
         if context.scene.jupedsim_props.loaded_agent_count:
             agents_count = context.scene.jupedsim_props.loaded_agent_count
         elif "JuPedSim_Agents" in bpy.data.collections:
             agents_count = len(bpy.data.collections["JuPedSim_Agents"].objects)
-        
+
         if "JuPedSim_Geometry" in bpy.data.collections:
             geometry_count = len(bpy.data.collections["JuPedSim_Geometry"].objects)
-        
+
         box = layout.box()
         box.label(text=f"Agents loaded: {agents_count}")
         box.label(text=f"Geometry curves: {geometry_count}")
@@ -157,4 +155,3 @@ def register():
 def unregister():
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
