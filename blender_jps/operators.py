@@ -36,10 +36,11 @@ def _stream_frame_handler(scene):
     state = STREAM_STATE
     if not state["db_path"] or not state["agent_ids"]:
         return
-    frame = scene.frame_current
-    if state["frame_step"] > 1 and frame % state["frame_step"] != 0:
-        return
-    if frame < state["min_frame"] or frame > state["max_frame"]:
+    blender_frame = scene.frame_current
+    # When frame_step > 1, Blender frame F shows SQLite frame F * frame_step (e.g. Blender 1 → SQLite 10).
+    step = state["frame_step"]
+    db_frame = blender_frame if step <= 1 else blender_frame * step
+    if db_frame < state["min_frame"] or db_frame > state["max_frame"]:
         return
 
     if state["conn"] is None:
@@ -48,7 +49,7 @@ def _stream_frame_handler(scene):
     cur = state["conn"].cursor()
     res = cur.execute(
         "SELECT id, pos_x, pos_y FROM trajectory_data WHERE frame == (?) ORDER BY id ASC",
-        (frame,),
+        (db_frame,),
     )
     rows = res.fetchall()
 
@@ -442,8 +443,14 @@ class JUPEDSIM_OT_load_simulation(Operator):
         self._sampled_frames = set()
         self._path_groups = self._worker_data.get("path_groups")
         context.scene.jupedsim_props.loaded_agent_count = self._total_agents
-        context.scene.frame_start = self._min_frame
-        context.scene.frame_end = self._max_frame
+        # When frame_step > 1, map Blender timeline so frame F shows SQLite frame F*step (e.g. 1→10, 2→20).
+        step = self._frame_step
+        if step > 1:
+            context.scene.frame_start = 1
+            context.scene.frame_end = max(1, self._max_frame // step)
+        else:
+            context.scene.frame_start = self._min_frame
+            context.scene.frame_end = self._max_frame
         for key, value in (self._worker_timings or {}).items():
             self._timings[key] = value
         if not self._big_data_mode:
