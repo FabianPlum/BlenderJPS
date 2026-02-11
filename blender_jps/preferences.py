@@ -42,7 +42,7 @@ def dependencies_installed():
     """
     if is_pedpy_installed():
         return True
-    pedpy_dir = os.path.join(_MODULES_DIR, "pedpy")
+    pedpy_dir = os.path.join(DEPS_DIR, "pedpy")
     return os.path.isdir(pedpy_dir)
 
 
