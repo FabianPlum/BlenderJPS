@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
+.python-version
+uv.lock
 
 # Blender
 *.blend
@@ -19,4 +21,8 @@ blender_jps/modules/
 # OS
 .DS_Store
 Thumbs.db
+*.zip
+/*.md
 
+# emacs
+*~

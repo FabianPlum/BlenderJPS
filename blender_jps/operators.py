@@ -3,6 +3,7 @@ BlenderJPS Operators
 Operators for loading JuPedSim trajectory and geometry data.
 """
 
+import os
 import pathlib
 import sqlite3
 import threading
@@ -15,6 +16,8 @@ import bpy
 from bpy.props import StringProperty
 from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper
+
+from . import install_utils
 
 STREAM_STATE = {
     "db_path": None,
@@ -29,6 +32,8 @@ STREAM_STATE = {
     "object_name": None,
     "handler_installed": False,
 }
+
+ADDON_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
 def _stream_frame_handler(scene):
@@ -92,6 +97,7 @@ def check_dependencies():
     """Check if required dependencies are installed."""
     import importlib.util
 
+    install_utils.ensure_deps_in_path(ADDON_DIR)
     if importlib.util.find_spec("shapely") is None:
         return False, "shapely not found"
     return True, None
