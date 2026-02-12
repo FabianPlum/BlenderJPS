@@ -10,7 +10,9 @@ jobs:
     
     env:
       ADDON_MODULE: "blender_jps"
-    
+      BLENDER_VERSION: "5.0.1"
+      BLENDER_MAJOR_DIR: "Blender5.0"
+      
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,23 +25,23 @@ jobs:
             ca-certificates curl tar xz-utils \
             libxi6 libxrender1 libxkbcommon0 libsm6 \
             libgl1 libglib2.0-0 libgomp1
-      
-      - name: Download Blender ${{ matrix.blender_version.version }}
+
+      - name: Download Blender ${{ env.BLENDER_VERSION }}
         run: |
           set -euxo pipefail
-          TARBALL="blender-${{ matrix.blender_version.version }}-linux-x64.tar.xz"
-          URL="https://download.blender.org/release/${{ matrix.blender_version.major_dir }}/${TARBALL}"
+          TARBALL="blender-${BLENDER_VERSION}-linux-x64.tar.xz"
+          URL="https://download.blender.org/release/${BLENDER_MAJOR_DIR}/${TARBALL}"
           
           echo "Downloading from: $URL"
           curl -fL "$URL" -o "$TARBALL"
           tar -xf "$TARBALL"
           
-          BLENDER_DIR="blender-${{ matrix.blender_version.version }}-linux-x64"
+          BLENDER_DIR="blender-${BLENDER_VERSION}-linux-x64"
           echo "BLENDER_BIN=${GITHUB_WORKSPACE}/${BLENDER_DIR}/blender" >> "$GITHUB_ENV"
           
-          "$GITHUB_WORKSPACE/${BLENDER_DIR}/blender" --version
+          "${GITHUB_WORKSPACE}/${BLENDER_DIR}/blender" --version      
       
-      - name: Install dependencies using addon's installation routine
+      - name: Install dependencies
         shell: bash
         run: |
           set -euxo pipefail
