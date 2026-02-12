@@ -241,7 +241,7 @@ def _test_example_file(addon_name, repo_root):
     print("Testing Prepackaged Example File (examples/trajectories.sqlite)")
     print("=" * 72 + "\n")
 
-    example_path = os.path.join(repo_root, "examples", "trajectories.sqlite")
+    example_path = os.path.join(repo_root, "blender_jps", "examples", "trajectories.sqlite")
 
     if not os.path.exists(example_path):
         raise RuntimeError(f"Example file not found: {example_path}")
