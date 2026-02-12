@@ -54,6 +54,11 @@ def _parse_args():
         action="store_true",
         help="Test SQLite file loading operator",
     )
+    p.add_argument(
+        "--test-example-file",
+        action="store_true",
+        help="Test loading the prepackaged examples/trajectories.sqlite file",
+    )
     return p.parse_args(_script_args())
 
 
