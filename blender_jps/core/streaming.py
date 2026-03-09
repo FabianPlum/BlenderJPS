@@ -1,0 +1,114 @@
+"""Streaming state management for real-time trajectory playback."""
+
+import sqlite3
+from array import array
+
+import bpy
+
+from ..io.sqlite_reader import query_frame_positions
+
+STREAM_STATE = {
+    "db_path": None,
+    "conn": None,
+    "cursor": None,
+    "min_frame": 0,
+    "max_frame": 0,
+    "frame_step": 1,
+    "agent_ids": [],
+    "id_to_index": {},
+    "mode": None,  # "default" or "big"
+    "objects": [],
+    "object_name": None,
+    "handler_installed": False,
+}
+
+
+def stream_frame_handler(scene):
+    """Stream positions from sqlite for the current frame."""
+    state = STREAM_STATE
+    if not state["db_path"] or not state["agent_ids"]:
+        return
+    blender_frame = scene.frame_current
+    step = state["frame_step"]
+    db_frame = blender_frame if step <= 1 else blender_frame * step
+    if db_frame < state["min_frame"] or db_frame > state["max_frame"]:
+        return
+
+    if state["conn"] is None:
+        state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
+        state["cursor"] = state["conn"].cursor()
+
+    rows = query_frame_positions(state["cursor"], db_frame)
+
+    if state["mode"] == "big":
+        obj = bpy.data.objects.get(state["object_name"])
+        if not obj or obj.type != "MESH":
+            return
+        total = len(state["agent_ids"])
+        hide_z = -1.0e6
+        coords = array("f", [0.0] * (total * 3))
+        for i in range(2, len(coords), 3):
+            coords[i] = hide_z
+        for agent_id, x, y in rows:
+            idx = state["id_to_index"].get(agent_id)
+            if idx is None:
+                continue
+            base = idx * 3
+            coords[base] = float(x)
+            coords[base + 1] = float(y)
+            coords[base + 2] = 0.5
+        obj.data.vertices.foreach_set("co", coords)
+        obj.data.update()
+        return
+
+    # Default mode: update agent objects directly.
+    for obj in state["objects"]:
+        obj.hide_viewport = True
+        obj.hide_render = True
+    for agent_id, x, y in rows:
+        idx = state["id_to_index"].get(agent_id)
+        if idx is None:
+            continue
+        obj = state["objects"][idx]
+        obj.location = (float(x), float(y), 0.5)
+        obj.hide_viewport = False
+        obj.hide_render = False
+
+
+def start_streaming(
+    db_path, agent_ids, min_frame, max_frame, frame_step, mode, objects=None, object_name=None
+):
+    """Register the frame-change handler and populate streaming state."""
+    STREAM_STATE["db_path"] = db_path
+    STREAM_STATE["min_frame"] = min_frame
+    STREAM_STATE["max_frame"] = max_frame
+    STREAM_STATE["frame_step"] = frame_step
+    STREAM_STATE["agent_ids"] = list(agent_ids)
+    STREAM_STATE["id_to_index"] = {agent_id: idx for idx, agent_id in enumerate(agent_ids)}
+    STREAM_STATE["mode"] = mode
+    STREAM_STATE["objects"] = objects or []
+    STREAM_STATE["object_name"] = object_name
+    if not STREAM_STATE["handler_installed"]:
+        bpy.app.handlers.frame_change_pre.append(stream_frame_handler)
+        STREAM_STATE["handler_installed"] = True
+
+
+def clear_stream_state():
+    """Remove frame handlers and clear streaming buffers."""
+    if STREAM_STATE["handler_installed"]:
+        if stream_frame_handler in bpy.app.handlers.frame_change_pre:
+            bpy.app.handlers.frame_change_pre.remove(stream_frame_handler)
+    if STREAM_STATE["conn"] is not None:
+        STREAM_STATE["conn"].close()
+    STREAM_STATE["db_path"] = None
+    STREAM_STATE["conn"] = None
+    STREAM_STATE["cursor"] = None
+    STREAM_STATE["min_frame"] = 0
+    STREAM_STATE["max_frame"] = 0
+    STREAM_STATE["frame_step"] = 1
+    STREAM_STATE["agent_ids"] = []
+    STREAM_STATE["id_to_index"] = {}
+    STREAM_STATE["mode"] = None
+    STREAM_STATE["objects"] = []
+    STREAM_STATE["object_name"] = None
+    STREAM_STATE["handler_installed"] = False
