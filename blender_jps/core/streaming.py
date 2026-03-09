@@ -10,6 +10,7 @@ from ..io.sqlite_reader import query_frame_positions
 STREAM_STATE = {
     "db_path": None,
     "conn": None,
+    "cursor": None,
     "min_frame": 0,
     "max_frame": 0,
     "frame_step": 1,
@@ -35,8 +36,9 @@ def stream_frame_handler(scene):
 
     if state["conn"] is None:
         state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
+        state["cursor"] = state["conn"].cursor()
 
-    rows = query_frame_positions(state["conn"], db_frame)
+    rows = query_frame_positions(state["cursor"], db_frame)
 
     if state["mode"] == "big":
         obj = bpy.data.objects.get(state["object_name"])
@@ -100,6 +102,7 @@ def clear_stream_state():
         STREAM_STATE["conn"].close()
     STREAM_STATE["db_path"] = None
     STREAM_STATE["conn"] = None
+    STREAM_STATE["cursor"] = None
     STREAM_STATE["min_frame"] = 0
     STREAM_STATE["max_frame"] = 0
     STREAM_STATE["frame_step"] = 1

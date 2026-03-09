@@ -93,13 +93,15 @@ def _load_full_path_groups(cursor, frame_step):
     return [(agent_id, coords) for agent_id, coords in paths.items()]
 
 
-def query_frame_positions(conn, frame):
+def query_frame_positions(cursor, frame):
     """Query agent positions for a single frame.
+
+    *cursor* should be a reusable ``sqlite3.Cursor`` kept open for the
+    lifetime of the streaming session.
 
     Returns a list of ``(id, pos_x, pos_y)`` tuples.
     """
-    cur = conn.cursor()
-    res = cur.execute(
+    res = cursor.execute(
         "SELECT id, pos_x, pos_y FROM trajectory_data WHERE frame == (?) ORDER BY id ASC",
         (frame,),
     )
