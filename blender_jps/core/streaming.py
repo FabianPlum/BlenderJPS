@@ -102,6 +102,7 @@ def clear_stream_state():
     STREAM_STATE["conn"] = None
     STREAM_STATE["min_frame"] = 0
     STREAM_STATE["max_frame"] = 0
+    STREAM_STATE["frame_step"] = 1
     STREAM_STATE["agent_ids"] = []
     STREAM_STATE["id_to_index"] = {}
     STREAM_STATE["mode"] = None
