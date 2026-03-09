@@ -1,0 +1,80 @@
+"""HDF5 reading and parsing for trajectory files via pedpy."""
+
+import time
+
+
+def read_simulation_data(path, frame_step, load_full_paths, cancel_event):
+    """Read trajectory and geometry from an HDF5 file via pedpy.
+
+    Designed to run in a worker thread.  Returns ``(data_dict, timings_dict)``
+    on success.  Raises on failure.  Checks *cancel_event* between heavy
+    operations so the caller can abort early.
+    """
+    from pedpy import (
+        load_trajectory_from_ped_data_archive_hdf5,
+        load_walkable_area_from_ped_data_archive_hdf5,
+    )
+
+    timings = {}
+    start_total = time.perf_counter()
+
+    start = time.perf_counter()
+    traj = load_trajectory_from_ped_data_archive_hdf5(path)
+    timings["load_trajectory_hdf5"] = time.perf_counter() - start
+    if cancel_event.is_set():
+        return None, timings
+
+    start = time.perf_counter()
+    walkable = load_walkable_area_from_ped_data_archive_hdf5(path)
+    timings["load_walkable_area_hdf5"] = time.perf_counter() - start
+    if cancel_event.is_set():
+        return None, timings
+
+    df = traj.data
+    fps = traj.frame_rate
+
+    start = time.perf_counter()
+    min_frame = int(df["frame"].min())
+    max_frame = int(df["frame"].max())
+    agent_ids = sorted(df["id"].unique().tolist())
+    timings["parse_metadata_hdf5"] = time.perf_counter() - start
+    if cancel_event.is_set():
+        return None, timings
+
+    # Pre-group by frame for fast playback
+    start = time.perf_counter()
+    frame_data = {}
+    for frame_num, group in df.groupby("frame"):
+        frame_data[int(frame_num)] = list(zip(group["id"], group["x"], group["y"], strict=True))
+    timings["pregroup_frames_hdf5"] = time.perf_counter() - start
+    if cancel_event.is_set():
+        return None, timings
+
+    # Load full paths if requested
+    path_groups = None
+    if load_full_paths:
+        start = time.perf_counter()
+        path_groups = []
+        for agent_id, agent_df in df.groupby("id"):
+            coords = [
+                (row["x"], row["y"], 0.0)
+                for _, row in agent_df.iterrows()
+                if frame_step <= 1 or row["frame"] % frame_step == 0
+            ]
+            path_groups.append((agent_id, coords))
+        timings["load_full_paths_hdf5"] = time.perf_counter() - start
+
+    timings["load_hdf5_total"] = time.perf_counter() - start_total
+
+    data = {
+        "geometry": walkable.polygon,
+        "agent_ids": agent_ids,
+        "min_frame": min_frame,
+        "max_frame": max_frame,
+        "fps": fps,
+        "num_frames": len(frame_data),
+        "db_path": None,
+        "frame_data": frame_data,
+        "path_groups": path_groups,
+    }
+    return data, timings
