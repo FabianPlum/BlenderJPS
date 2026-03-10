@@ -10,6 +10,7 @@ A Blender addon for importing JuPedSim simulation SQLite files, visualizing agen
 ## Features
 
 - **Import JuPedSim SQLite files**: Load trajectory data and walkable area geometry
+- **Import HDF5 files**: Load trajectory data and walkable area geometry
 - **Animated Agents**: Each agent is represented as an animated sphere following their trajectory
 - **Agent Path Visualization**: Each agent's complete path is automatically created as a curve object
 - **Path Visibility Toggle**: Show/hide all agent path curves with a single checkbox

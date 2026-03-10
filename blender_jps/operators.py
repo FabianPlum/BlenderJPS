@@ -17,7 +17,8 @@ from bpy_extras.io_utils import ImportHelper
 from . import install_utils
 from .core import geometry as geo
 from .core.streaming import clear_stream_state, start_streaming
-from .io.sqlite_reader import read_simulation_data
+from .io.hdf5_reader import read_simulation_data as read_hdf5_data
+from .io.sqlite_reader import read_simulation_data as read_sqlite_data
 
 ADDON_DIR = os.path.dirname(os.path.realpath(__file__))
 
@@ -33,14 +34,14 @@ def check_dependencies():
 
 
 class JUPEDSIM_OT_select_file(Operator, ImportHelper):
-    """Select a JuPedSim SQLite trajectory file."""
+    """Select a JuPedSim trajectory file (SQLite or HDF5)."""
 
     bl_idname = "jupedsim.select_file"
-    bl_label = "Select SQLite File"
-    bl_description = "Browse for a JuPedSim trajectory SQLite file"
+    bl_label = "Select Trajectory File"
+    bl_description = "Browse for a JuPedSim trajectory file (SQLite or HDF5)"
 
     filter_glob: StringProperty(
-        default="*.sqlite;*.db",
+        default="*.sqlite;*.db;*.h5;*.hdf5",
         options={"HIDDEN"},
     )
 
@@ -102,7 +103,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         # Get file path
         filepath = props.sqlite_file
         if not filepath:
-            self.report({"ERROR"}, "No SQLite file selected")
+            self.report({"ERROR"}, "No trajectory file selected")
             return {"CANCELLED"}
 
         filepath = bpy.path.abspath(filepath)
@@ -120,11 +121,17 @@ class JUPEDSIM_OT_load_simulation(Operator):
         props.loading_in_progress = True
         props.loading_progress = 0.0
         props.loading_message = "Starting load..."
-        self._stage = "loading_sqlite"
+        self._stage = "loading_data"
 
-        # Start worker thread for SQLite loading
+        # Dispatch to appropriate worker based on file extension
+        ext = path.suffix.lower()
+        if ext in (".h5", ".hdf5"):
+            worker = self._load_hdf5_worker
+        else:
+            worker = self._load_sqlite_worker
+
         self._worker_thread = threading.Thread(
-            target=self._load_sqlite_worker,
+            target=worker,
             args=(path, self._frame_step, self._load_full_paths, self._cancel_event),
             daemon=True,
         )
@@ -153,7 +160,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
             return self._finish_cancel(context)
 
         # Update progress while waiting for worker
-        if self._stage == "loading_sqlite":
+        if self._stage == "loading_data":
             props.loading_message = "Loading trajectory data..."
             props.loading_progress = 5.0
             if self._worker_done:
@@ -214,6 +221,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 frame_step=self._frame_step,
                 mode="big",
                 object_name=obj_name,
+                frame_data=self._worker_data.get("frame_data"),
             )
             props.loading_message = "Creating particle points..."
             props.loading_progress = 90.0
@@ -243,6 +251,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
                     frame_step=self._frame_step,
                     mode="default",
                     objects=objects,
+                    frame_data=self._worker_data.get("frame_data"),
                 )
             context.scene.frame_set(1)
             self._timed_end("finalize")
@@ -315,9 +324,21 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 print(f"[BlenderJPS] {key} took {self._timings[key]:.3f}s (cancelled)")
 
     def _load_sqlite_worker(self, path, frame_step, load_full_paths, cancel_event):
-        """Run read_simulation_data in a background thread."""
+        """Run SQLite reader in a background thread."""
         try:
-            data, timings = read_simulation_data(path, frame_step, load_full_paths, cancel_event)
+            data, timings = read_sqlite_data(path, frame_step, load_full_paths, cancel_event)
+            self._worker_data = data
+            self._worker_timings = timings
+            self._worker_done = True
+        except Exception as e:
+            self._worker_error = str(e)
+            self._worker_traceback = traceback.format_exc()
+            self._worker_done = True
+
+    def _load_hdf5_worker(self, path, frame_step, load_full_paths, cancel_event):
+        """Run HDF5 reader in a background thread."""
+        try:
+            data, timings = read_hdf5_data(path, frame_step, load_full_paths, cancel_event)
             self._worker_data = data
             self._worker_timings = timings
             self._worker_done = True

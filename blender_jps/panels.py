@@ -117,7 +117,7 @@ class JUPEDSIM_PT_main_panel(Panel):
 class JUPEDSIM_PT_info_panel(Panel):
     """Info panel showing loaded simulation statistics."""
 
-    bl_label = "Simulation Info"
+    bl_label = "Trajectory Info"
     bl_idname = "JUPEDSIM_PT_info_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"

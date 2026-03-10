@@ -20,13 +20,16 @@ STREAM_STATE = {
     "objects": [],
     "object_name": None,
     "handler_installed": False,
+    "frame_data": None,  # dict: frame_number -> list of (id, x, y) tuples (HDF5 mode)
 }
 
 
 def stream_frame_handler(scene):
     """Stream positions from sqlite for the current frame."""
     state = STREAM_STATE
-    if not state["db_path"] or not state["agent_ids"]:
+    if not state["agent_ids"]:
+        return
+    if state["db_path"] is None and state["frame_data"] is None:
         return
     blender_frame = scene.frame_current
     step = state["frame_step"]
@@ -34,11 +37,13 @@ def stream_frame_handler(scene):
     if db_frame < state["min_frame"] or db_frame > state["max_frame"]:
         return
 
-    if state["conn"] is None:
-        state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
-        state["cursor"] = state["conn"].cursor()
-
-    rows = query_frame_positions(state["cursor"], db_frame)
+    if state["frame_data"] is not None:
+        rows = state["frame_data"].get(db_frame, [])
+    else:
+        if state["conn"] is None:
+            state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
+            state["cursor"] = state["conn"].cursor()
+        rows = query_frame_positions(state["cursor"], db_frame)
 
     if state["mode"] == "big":
         obj = bpy.data.objects.get(state["object_name"])
@@ -76,10 +81,19 @@ def stream_frame_handler(scene):
 
 
 def start_streaming(
-    db_path, agent_ids, min_frame, max_frame, frame_step, mode, objects=None, object_name=None
+    db_path,
+    agent_ids,
+    min_frame,
+    max_frame,
+    frame_step,
+    mode,
+    objects=None,
+    object_name=None,
+    frame_data=None,
 ):
     """Register the frame-change handler and populate streaming state."""
     STREAM_STATE["db_path"] = db_path
+    STREAM_STATE["frame_data"] = frame_data
     STREAM_STATE["min_frame"] = min_frame
     STREAM_STATE["max_frame"] = max_frame
     STREAM_STATE["frame_step"] = frame_step
@@ -103,6 +117,7 @@ def clear_stream_state():
     STREAM_STATE["db_path"] = None
     STREAM_STATE["conn"] = None
     STREAM_STATE["cursor"] = None
+    STREAM_STATE["frame_data"] = None
     STREAM_STATE["min_frame"] = 0
     STREAM_STATE["max_frame"] = 0
     STREAM_STATE["frame_step"] = 1
