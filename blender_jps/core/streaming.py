@@ -81,8 +81,15 @@ def stream_frame_handler(scene):
 
 
 def start_streaming(
-    db_path, agent_ids, min_frame, max_frame, frame_step, mode,
-    objects=None, object_name=None, frame_data=None,
+    db_path,
+    agent_ids,
+    min_frame,
+    max_frame,
+    frame_step,
+    mode,
+    objects=None,
+    object_name=None,
+    frame_data=None,
 ):
     """Register the frame-change handler and populate streaming state."""
     STREAM_STATE["db_path"] = db_path
