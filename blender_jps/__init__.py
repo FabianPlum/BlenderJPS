@@ -1,6 +1,6 @@
 """BlenderJPS - JuPedSim Trajectory Importer for Blender.
 
-A Blender addon for importing JuPedSim simulation SQLite files.
+A Blender addon for importing JuPedSim trajectory files (SQLite and HDF5).
 """
 
 import os
@@ -17,7 +17,7 @@ bl_info = {
     "version": (0, 1, 5),
     "blender": (4, 0, 0),
     "location": "View3D > Sidebar > JuPedSim",
-    "description": "Import JuPedSim trajectory SQLite files with agent animations and geometry",
+    "description": "Import JuPedSim trajectory files (SQLite and HDF5) with agent animations and geometry",
     "doc_url": "https://github.com/FabianPlum/BlenderJPS",
     "tracker_url": "https://github.com/FabianPlum/BlenderJPS/issues",
     "category": "Import-Export",
