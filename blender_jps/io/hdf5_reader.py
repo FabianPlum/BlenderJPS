@@ -1,9 +1,17 @@
 """HDF5 reading and parsing for trajectory files via pedpy."""
 
+import pathlib
+import threading
 import time
+from typing import Any
 
 
-def read_simulation_data(path, frame_step, load_full_paths, cancel_event):
+def read_simulation_data(
+    path: pathlib.Path,
+    frame_step: int,
+    load_full_paths: bool,
+    cancel_event: threading.Event,
+) -> tuple[dict[str, Any] | None, dict[str, float]]:
     """Read trajectory and geometry from an HDF5 file via pedpy.
 
     Designed to run in a worker thread.  Returns ``(data_dict, timings_dict)``

@@ -2,12 +2,15 @@
 
 import sqlite3
 from array import array
+from typing import Any
 
 import bpy
 
 from ..io.sqlite_reader import query_frame_positions
 
-STREAM_STATE = {
+FrameData = dict[int, list[tuple[int, float, float]]]
+
+STREAM_STATE: dict[str, Any] = {
     "db_path": None,
     "conn": None,
     "cursor": None,
@@ -24,7 +27,7 @@ STREAM_STATE = {
 }
 
 
-def stream_frame_handler(scene):
+def stream_frame_handler(scene: bpy.types.Scene) -> None:
     """Stream positions from SQLite or in-memory HDF5 data for the current frame."""
     state = STREAM_STATE
     if not state["agent_ids"]:
@@ -84,16 +87,16 @@ def stream_frame_handler(scene):
 
 
 def start_streaming(
-    db_path,
-    agent_ids,
-    min_frame,
-    max_frame,
-    frame_step,
-    mode,
-    objects=None,
-    object_name=None,
-    frame_data=None,
-):
+    db_path: str | None,
+    agent_ids: list[int],
+    min_frame: int,
+    max_frame: int,
+    frame_step: int,
+    mode: str,
+    objects: list[bpy.types.Object] | None = None,
+    object_name: str | None = None,
+    frame_data: FrameData | None = None,
+) -> None:
     """Register the frame-change handler and populate streaming state."""
     STREAM_STATE["db_path"] = db_path
     STREAM_STATE["frame_data"] = frame_data
@@ -110,7 +113,7 @@ def start_streaming(
         STREAM_STATE["handler_installed"] = True
 
 
-def clear_stream_state():
+def clear_stream_state() -> None:
     """Remove frame handlers and clear streaming buffers."""
     if STREAM_STATE["handler_installed"]:
         if stream_frame_handler in bpy.app.handlers.frame_change_pre:
