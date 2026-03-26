@@ -53,7 +53,7 @@ def read_simulation_data(path, frame_step, load_full_paths, cancel_event):
         path_groups = None
         if load_full_paths:
             start = time.perf_counter()
-            path_groups = _load_full_path_groups(cur, frame_step)
+            path_groups = _load_full_path_groups(cur, frame_step, min_frame)
             timings["load_full_paths"] = time.perf_counter() - start
 
         start = time.perf_counter()
@@ -80,14 +80,14 @@ def read_simulation_data(path, frame_step, load_full_paths, cancel_event):
         conn.close()
 
 
-def _load_full_path_groups(cursor, frame_step):
+def _load_full_path_groups(cursor, frame_step, min_frame):
     """Load full path coordinates per agent from an open cursor."""
     res = cursor.execute(
         "SELECT id, frame, pos_x, pos_y FROM trajectory_data ORDER BY id ASC, frame ASC"
     )
     paths = {}
     for agent_id, frame, x, y in res.fetchall():
-        if frame_step > 1 and frame % frame_step != 0:
+        if frame_step > 1 and (frame - min_frame) % frame_step != 0:
             continue
         paths.setdefault(agent_id, []).append((float(x), float(y), 0.0))
     return [(agent_id, coords) for agent_id, coords in paths.items()]
