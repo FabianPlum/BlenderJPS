@@ -8,7 +8,7 @@ import pathlib
 import threading
 import time
 import traceback
-from typing import Any
+from typing import Any, Callable
 
 import bpy
 from bpy.props import StringProperty
@@ -128,16 +128,13 @@ class JUPEDSIM_OT_load_simulation(Operator):
         props.loading_message = "Starting load..."
         self._stage = "loading_data"
 
-        # Dispatch to appropriate worker based on file extension
+        # Dispatch to appropriate reader based on file extension
         ext = path.suffix.lower()
-        if ext in (".h5", ".hdf5"):
-            worker = self._load_hdf5_worker
-        else:
-            worker = self._load_sqlite_worker
+        reader_fn = read_hdf5_data if ext in (".h5", ".hdf5") else read_sqlite_data
 
         self._worker_thread = threading.Thread(
-            target=worker,
-            args=(path, self._frame_step, self._load_full_paths, self._cancel_event),
+            target=self._run_reader_worker,
+            args=(reader_fn, path, self._frame_step, self._load_full_paths, self._cancel_event),
             daemon=True,
         )
         self._worker_thread.start()
@@ -337,34 +334,20 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 self._timings[key] = time.perf_counter() + value
                 print(f"[BlenderJPS] {key} took {self._timings[key]:.3f}s (cancelled)")
 
-    def _load_sqlite_worker(
+    def _run_reader_worker(
         self,
+        reader_fn: Callable[
+            [pathlib.Path, int, bool, threading.Event],
+            tuple[dict[str, Any], dict[str, float]],
+        ],
         path: pathlib.Path,
         frame_step: int,
         load_full_paths: bool,
         cancel_event: threading.Event,
     ) -> None:
-        """Run SQLite reader in a background thread."""
+        """Run a reader function in a background thread."""
         try:
-            data, timings = read_sqlite_data(path, frame_step, load_full_paths, cancel_event)
-            self._worker_data = data
-            self._worker_timings = timings
-            self._worker_done = True
-        except Exception as e:
-            self._worker_error = str(e)
-            self._worker_traceback = traceback.format_exc()
-            self._worker_done = True
-
-    def _load_hdf5_worker(
-        self,
-        path: pathlib.Path,
-        frame_step: int,
-        load_full_paths: bool,
-        cancel_event: threading.Event,
-    ) -> None:
-        """Run HDF5 reader in a background thread."""
-        try:
-            data, timings = read_hdf5_data(path, frame_step, load_full_paths, cancel_event)
+            data, timings = reader_fn(path, frame_step, load_full_paths, cancel_event)
             self._worker_data = data
             self._worker_timings = timings
             self._worker_done = True
