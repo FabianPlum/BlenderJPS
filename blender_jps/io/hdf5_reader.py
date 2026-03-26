@@ -67,7 +67,7 @@ def read_simulation_data(
         start = time.perf_counter()
         # Apply frame_step filtering once for all agents to avoid per-row checks
         if frame_step > 1:
-            df_paths = df[df["frame"] % frame_step == 0]
+            df_paths = df[(df["frame"] - min_frame) % frame_step == 0]
         else:
             df_paths = df
 
