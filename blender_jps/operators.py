@@ -370,7 +370,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         step = self._frame_step
         if step > 1:
             context.scene.frame_start = 1
-            context.scene.frame_end = max(1, self._max_frame // step)
+            context.scene.frame_end = max(1, (self._max_frame - self._min_frame) // step + 1)
         else:
             context.scene.frame_start = self._min_frame
             context.scene.frame_end = self._max_frame
