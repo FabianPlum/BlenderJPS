@@ -64,7 +64,23 @@ class JUPEDSIM_OT_uninstall_dependencies(bpy.types.Operator):
                 if deps_dir in sys.path:
                     sys.path.remove(deps_dir)
 
-                shutil.rmtree(deps_dir)
+                # Unload modules imported from deps so Windows releases file locks
+                deps_prefix = os.path.normcase(deps_dir + os.sep)
+                to_remove = [
+                    name
+                    for name, mod in sys.modules.items()
+                    if getattr(mod, "__file__", None)
+                    and os.path.normcase(mod.__file__).startswith(deps_prefix)
+                ]
+                for name in to_remove:
+                    del sys.modules[name]
+
+                def _on_rm_error(func, path, exc_info):
+                    """Handle read-only or locked files on Windows."""
+                    os.chmod(path, 0o777)
+                    func(path)
+
+                shutil.rmtree(deps_dir, onerror=_on_rm_error)
                 self.report({"INFO"}, "Dependencies uninstalled successfully.")
             except Exception as e:
                 self.report({"ERROR"}, f"Failed to remove deps folder: {e}")
