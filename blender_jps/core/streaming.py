@@ -2,12 +2,15 @@
 
 import sqlite3
 from array import array
+from typing import Any
 
 import bpy
 
 from ..io.sqlite_reader import query_frame_positions
 
-STREAM_STATE = {
+FrameData = dict[int, list[tuple[int, float, float]]]
+
+STREAM_STATE: dict[str, Any] = {
     "db_path": None,
     "conn": None,
     "cursor": None,
@@ -20,25 +23,33 @@ STREAM_STATE = {
     "objects": [],
     "object_name": None,
     "handler_installed": False,
+    "frame_data": None,  # dict: frame_number -> list of (id, x, y) tuples (HDF5 mode)
 }
 
 
-def stream_frame_handler(scene):
-    """Stream positions from sqlite for the current frame."""
+def stream_frame_handler(scene: bpy.types.Scene) -> None:
+    """Stream positions from SQLite or in-memory HDF5 data for the current frame."""
     state = STREAM_STATE
-    if not state["db_path"] or not state["agent_ids"]:
+    if not state["agent_ids"]:
+        return
+    if state["db_path"] is None and state["frame_data"] is None:
         return
     blender_frame = scene.frame_current
     step = state["frame_step"]
-    db_frame = blender_frame if step <= 1 else blender_frame * step
+    if step <= 1:
+        db_frame = blender_frame
+    else:
+        db_frame = state["min_frame"] + (blender_frame - scene.frame_start) * step
     if db_frame < state["min_frame"] or db_frame > state["max_frame"]:
         return
 
-    if state["conn"] is None:
-        state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
-        state["cursor"] = state["conn"].cursor()
-
-    rows = query_frame_positions(state["cursor"], db_frame)
+    if state["frame_data"] is not None:
+        rows = state["frame_data"].get(db_frame, [])
+    else:
+        if state["conn"] is None:
+            state["conn"] = sqlite3.connect(state["db_path"], isolation_level=None)
+            state["cursor"] = state["conn"].cursor()
+        rows = query_frame_positions(state["cursor"], db_frame)
 
     if state["mode"] == "big":
         obj = bpy.data.objects.get(state["object_name"])
@@ -76,10 +87,19 @@ def stream_frame_handler(scene):
 
 
 def start_streaming(
-    db_path, agent_ids, min_frame, max_frame, frame_step, mode, objects=None, object_name=None
-):
+    db_path: str | None,
+    agent_ids: list[int],
+    min_frame: int,
+    max_frame: int,
+    frame_step: int,
+    mode: str,
+    objects: list[bpy.types.Object] | None = None,
+    object_name: str | None = None,
+    frame_data: FrameData | None = None,
+) -> None:
     """Register the frame-change handler and populate streaming state."""
     STREAM_STATE["db_path"] = db_path
+    STREAM_STATE["frame_data"] = frame_data
     STREAM_STATE["min_frame"] = min_frame
     STREAM_STATE["max_frame"] = max_frame
     STREAM_STATE["frame_step"] = frame_step
@@ -93,7 +113,7 @@ def start_streaming(
         STREAM_STATE["handler_installed"] = True
 
 
-def clear_stream_state():
+def clear_stream_state() -> None:
     """Remove frame handlers and clear streaming buffers."""
     if STREAM_STATE["handler_installed"]:
         if stream_frame_handler in bpy.app.handlers.frame_change_pre:
@@ -103,6 +123,7 @@ def clear_stream_state():
     STREAM_STATE["db_path"] = None
     STREAM_STATE["conn"] = None
     STREAM_STATE["cursor"] = None
+    STREAM_STATE["frame_data"] = None
     STREAM_STATE["min_frame"] = 0
     STREAM_STATE["max_frame"] = 0
     STREAM_STATE["frame_step"] = 1

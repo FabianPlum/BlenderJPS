@@ -6,7 +6,7 @@ User interface panels for the JuPedSim importer.
 import os
 
 import bpy
-from bpy.types import Panel
+from bpy.types import Context, Panel
 
 from .install_utils import is_pedpy_installed
 
@@ -22,7 +22,7 @@ class JUPEDSIM_PT_main_panel(Panel):
     bl_region_type = "UI"
     bl_category = "JuPedSim"
 
-    def draw(self, context):
+    def draw(self, context: Context) -> None:
         layout = self.layout
         props = context.scene.jupedsim_props
 
@@ -117,14 +117,14 @@ class JUPEDSIM_PT_main_panel(Panel):
 class JUPEDSIM_PT_info_panel(Panel):
     """Info panel showing loaded simulation statistics."""
 
-    bl_label = "Simulation Info"
+    bl_label = "Trajectory Info"
     bl_idname = "JUPEDSIM_PT_info_panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
     bl_category = "JuPedSim"
     bl_options = {"DEFAULT_CLOSED"}
 
-    def draw(self, context):
+    def draw(self, context: Context) -> None:
         layout = self.layout
 
         # Count agents and geometry
@@ -151,11 +151,11 @@ classes = [
 ]
 
 
-def register():
+def register() -> None:
     for cls in classes:
         bpy.utils.register_class(cls)
 
 
-def unregister():
+def unregister() -> None:
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)

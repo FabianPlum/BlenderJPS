@@ -8,84 +8,91 @@ import pathlib
 import threading
 import time
 import traceback
+from collections.abc import Callable
+from typing import Any
 
 import bpy
 from bpy.props import StringProperty
-from bpy.types import Operator
+from bpy.types import Context, Operator
 from bpy_extras.io_utils import ImportHelper
 
 from . import install_utils
 from .core import geometry as geo
 from .core.streaming import clear_stream_state, start_streaming
-from .io.sqlite_reader import read_simulation_data
+from .io.hdf5_reader import read_simulation_data as read_hdf5_data
+from .io.sqlite_reader import read_simulation_data as read_sqlite_data
 
 ADDON_DIR = os.path.dirname(os.path.realpath(__file__))
 
 
-def check_dependencies():
+def check_dependencies() -> tuple[bool, str | None]:
     """Check if required dependencies are installed."""
     import importlib.util
 
     install_utils.ensure_deps_in_path(ADDON_DIR)
-    if importlib.util.find_spec("shapely") is None:
-        return False, "shapely not found"
+    missing = []
+    for pkg in ("shapely", "pedpy"):
+        if importlib.util.find_spec(pkg) is None:
+            missing.append(pkg)
+    if missing:
+        return False, ", ".join(missing) + " not found"
     return True, None
 
 
 class JUPEDSIM_OT_select_file(Operator, ImportHelper):
-    """Select a JuPedSim SQLite trajectory file."""
+    """Select a JuPedSim trajectory file (SQLite or HDF5)."""
 
     bl_idname = "jupedsim.select_file"
-    bl_label = "Select SQLite File"
-    bl_description = "Browse for a JuPedSim trajectory SQLite file"
+    bl_label = "Select Trajectory File"
+    bl_description = "Browse for a JuPedSim trajectory file (SQLite or HDF5)"
 
     filter_glob: StringProperty(
-        default="*.sqlite;*.db",
+        default="*.sqlite;*.db;*.h5;*.hdf5",
         options={"HIDDEN"},
     )
 
     def execute(self, context):
-        """Store the selected SQLite file path in the scene properties."""
+        """Store the selected trajectory file path in the scene properties."""
         context.scene.jupedsim_props.sqlite_file = self.filepath
         self.report({"INFO"}, f"Selected file: {self.filepath}")
         return {"FINISHED"}
 
 
 class JUPEDSIM_OT_load_simulation(Operator):
-    """Load simulation data from the selected SQLite file."""
+    """Load simulation data from the selected trajectory file (SQLite or HDF5)."""
 
     bl_idname = "jupedsim.load_simulation"
     bl_label = "Load Simulation"
-    bl_description = "Load agent trajectories and geometry from the SQLite file"
+    bl_description = "Load agent trajectories and geometry from a SQLite or HDF5 file"
     bl_options = {"REGISTER", "UNDO"}
 
-    _timer = None
-    _worker_thread = None
-    _worker_done = False
-    _worker_error = None
-    _worker_data = None
-    _worker_timings = None
-    _worker_traceback = None
-    _cancel_event = None
-    _cancelled = False
-    _timings = None
-    _agent_groups = None
-    _agent_index = 0
-    _path_index = 0
-    _frame_step = 1
-    _min_frame = 0
-    _max_frame = 0
-    _sampled_frames = None
-    _agents_collection = None
-    _geometry_collection = None
-    _total_agents = 0
-    _stage = None
-    _big_data_mode = False
-    _load_full_paths = False
-    _path_groups = None
-    _materials = None
+    _timer: bpy.types.Timer | None = None
+    _worker_thread: threading.Thread | None = None
+    _worker_done: bool = False
+    _worker_error: str | None = None
+    _worker_data: dict[str, Any] | None = None
+    _worker_timings: dict[str, float] | None = None
+    _worker_traceback: str | None = None
+    _cancel_event: threading.Event | None = None
+    _cancelled: bool = False
+    _timings: dict[str, float] | None = None
+    _agent_groups: list[int] | None = None
+    _agent_index: int = 0
+    _path_index: int = 0
+    _frame_step: int = 1
+    _min_frame: int = 0
+    _max_frame: int = 0
+    _sampled_frames: set[int] | None = None
+    _agents_collection: bpy.types.Collection | None = None
+    _geometry_collection: bpy.types.Collection | None = None
+    _total_agents: int = 0
+    _stage: str | None = None
+    _big_data_mode: bool = False
+    _load_full_paths: bool = False
+    _path_groups: list[tuple[int, list[tuple[float, float, float]]]] | None = None
+    _materials: dict[str, Any] | None = None
 
-    def execute(self, context):
+    def execute(self, context: Context) -> set[str]:
         """Start a modal load that keeps the UI responsive."""
         # Check dependencies first
         deps_ok, error = check_dependencies()
@@ -102,7 +109,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         # Get file path
         filepath = props.sqlite_file
         if not filepath:
-            self.report({"ERROR"}, "No SQLite file selected")
+            self.report({"ERROR"}, "No trajectory file selected")
             return {"CANCELLED"}
 
         filepath = bpy.path.abspath(filepath)
@@ -120,12 +127,15 @@ class JUPEDSIM_OT_load_simulation(Operator):
         props.loading_in_progress = True
         props.loading_progress = 0.0
         props.loading_message = "Starting load..."
-        self._stage = "loading_sqlite"
+        self._stage = "loading_data"
 
-        # Start worker thread for SQLite loading
+        # Dispatch to appropriate reader based on file extension
+        ext = path.suffix.lower()
+        reader_fn = read_hdf5_data if ext in (".h5", ".hdf5") else read_sqlite_data
+
         self._worker_thread = threading.Thread(
-            target=self._load_sqlite_worker,
-            args=(path, self._frame_step, self._load_full_paths, self._cancel_event),
+            target=self._run_reader_worker,
+            args=(reader_fn, path, self._frame_step, self._load_full_paths, self._cancel_event),
             daemon=True,
         )
         self._worker_thread.start()
@@ -135,7 +145,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
         wm.modal_handler_add(self)
         return {"RUNNING_MODAL"}
 
-    def modal(self, context, event):
+    def modal(self, context: Context, event: bpy.types.Event) -> set[str]:
         """Advance loading stages and update progress."""
         props = context.scene.jupedsim_props
 
@@ -153,13 +163,16 @@ class JUPEDSIM_OT_load_simulation(Operator):
             return self._finish_cancel(context)
 
         # Update progress while waiting for worker
-        if self._stage == "loading_sqlite":
+        if self._stage == "loading_data":
             props.loading_message = "Loading trajectory data..."
             props.loading_progress = 5.0
             if self._worker_done:
                 if self._worker_error:
                     self.report({"ERROR"}, f"Failed to load simulation: {self._worker_error}")
                     self._print_worker_traceback()
+                    return self._finish_cancel(context)
+                if self._worker_data is None:
+                    self.report({"WARNING"}, "No data returned from worker")
                     return self._finish_cancel(context)
                 self._apply_worker_data(context)
                 props.loading_message = "Trajectory loaded"
@@ -176,6 +189,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
             self._stage = "create_geometry"
 
         if self._stage == "create_geometry":
+            assert self._worker_data is not None
             self._timed_start("create_geometry")
             num_curves = geo.create_geometry(
                 context,
@@ -196,6 +210,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 self._stage = "create_paths" if self._load_full_paths else "finalize"
 
         if self._stage == "create_big_data":
+            assert self._worker_data is not None
+            assert self._agent_groups is not None
             props.loading_message = "Building frame buffers..."
             props.loading_progress = 60.0
             self._timed_start("create_big_data")
@@ -214,6 +230,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 frame_step=self._frame_step,
                 mode="big",
                 object_name=obj_name,
+                frame_data=self._worker_data.get("frame_data"),
             )
             props.loading_message = "Creating particle points..."
             props.loading_progress = 90.0
@@ -226,6 +243,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 self._stage = "finalize"
 
         if self._stage == "finalize":
+            assert self._worker_data is not None
+            assert self._agent_groups is not None
             self._timed_start("finalize")
             show_paths = props.show_paths
             geo.update_path_visibility(self._agents_collection, show_paths)
@@ -243,8 +262,9 @@ class JUPEDSIM_OT_load_simulation(Operator):
                     frame_step=self._frame_step,
                     mode="default",
                     objects=objects,
+                    frame_data=self._worker_data.get("frame_data"),
                 )
-            context.scene.frame_set(1)
+            context.scene.frame_set(context.scene.frame_start)
             self._timed_end("finalize")
             props.loading_progress = 100.0
             props.loading_message = "Load complete"
@@ -254,7 +274,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
 
         return {"RUNNING_MODAL"}
 
-    def _reset_state(self):
+    def _reset_state(self) -> None:
         """Reset modal state for a new load."""
         self._worker_thread = None
         self._worker_done = False
@@ -282,14 +302,14 @@ class JUPEDSIM_OT_load_simulation(Operator):
         self._materials = {}
         clear_stream_state()
 
-    def _finish_success(self, context):
+    def _finish_success(self, context: Context) -> set[str]:
         """Finalize a successful load."""
         self._cleanup_timer(context)
         props = context.scene.jupedsim_props
         props.loading_in_progress = False
         return {"FINISHED"}
 
-    def _finish_cancel(self, context):
+    def _finish_cancel(self, context: Context) -> set[str]:
         """Finalize a cancelled load while keeping partial data."""
         self._cleanup_timer(context)
         self._finalize_timings_on_cancel()
@@ -299,13 +319,14 @@ class JUPEDSIM_OT_load_simulation(Operator):
         props.loading_message = "Load cancelled (partial data kept)"
         return {"CANCELLED"}
 
-    def _cleanup_timer(self, context):
+    def _cleanup_timer(self, context: Context) -> None:
         """Remove the modal timer."""
         if self._timer:
             context.window_manager.event_timer_remove(self._timer)
             self._timer = None
 
-    def _finalize_timings_on_cancel(self):
+    def _finalize_timings_on_cancel(self) -> None:
+        assert self._timings is not None
         for key, value in (self._worker_timings or {}).items():
             if key not in self._timings:
                 self._timings[key] = value
@@ -314,10 +335,20 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 self._timings[key] = time.perf_counter() + value
                 print(f"[BlenderJPS] {key} took {self._timings[key]:.3f}s (cancelled)")
 
-    def _load_sqlite_worker(self, path, frame_step, load_full_paths, cancel_event):
-        """Run read_simulation_data in a background thread."""
+    def _run_reader_worker(
+        self,
+        reader_fn: Callable[
+            [pathlib.Path, int, bool, threading.Event],
+            tuple[dict[str, Any] | None, dict[str, float]],
+        ],
+        path: pathlib.Path,
+        frame_step: int,
+        load_full_paths: bool,
+        cancel_event: threading.Event,
+    ) -> None:
+        """Run a reader function in a background thread."""
         try:
-            data, timings = read_simulation_data(path, frame_step, load_full_paths, cancel_event)
+            data, timings = reader_fn(path, frame_step, load_full_paths, cancel_event)
             self._worker_data = data
             self._worker_timings = timings
             self._worker_done = True
@@ -326,8 +357,9 @@ class JUPEDSIM_OT_load_simulation(Operator):
             self._worker_traceback = traceback.format_exc()
             self._worker_done = True
 
-    def _apply_worker_data(self, context):
+    def _apply_worker_data(self, context: Context) -> None:
         """Apply worker results to the modal state."""
+        assert self._worker_data is not None
         self._agent_groups = self._worker_data["agent_ids"]
         self._total_agents = len(self._agent_groups)
         self._min_frame = self._worker_data["min_frame"]
@@ -338,17 +370,18 @@ class JUPEDSIM_OT_load_simulation(Operator):
         step = self._frame_step
         if step > 1:
             context.scene.frame_start = 1
-            context.scene.frame_end = max(1, self._max_frame // step)
+            context.scene.frame_end = max(1, (self._max_frame - self._min_frame) // step + 1)
         else:
             context.scene.frame_start = self._min_frame
             context.scene.frame_end = self._max_frame
+        assert self._timings is not None
         for key, value in (self._worker_timings or {}).items():
             self._timings[key] = value
         if not self._big_data_mode:
             self._timed_start("create_agents")
 
-    def _step_create_agents(self, context):
-        """Create a small batch of agent objects per tick."""
+    def _step_create_agents(self, context: Context) -> bool:
+        """Create a batch of agent objects per tick."""
         if self._agent_groups is None:
             return True
         if self._agent_index == 0:
@@ -356,7 +389,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 {"INFO"},
                 f"Creating {self._total_agents} agents (every {self._frame_step} frame(s))...",
             )
-        chunk_size = 10
+        chunk_size = 100
         start = self._agent_index
         end = min(self._total_agents, start + chunk_size)
         for idx in range(start, end):
@@ -369,13 +402,13 @@ class JUPEDSIM_OT_load_simulation(Operator):
             return True
         return False
 
-    def _step_create_paths(self, context):
-        """Create a small batch of agent path curves per tick."""
+    def _step_create_paths(self, context: Context) -> bool:
+        """Create a batch of agent path curves per tick."""
         if not self._path_groups:
             return True
         if self._path_index == 0:
             self._timed_start("create_paths")
-        chunk_size = 10
+        chunk_size = 100
         start = self._path_index
         end = min(len(self._path_groups), start + chunk_size)
         for idx in range(start, end):
@@ -388,23 +421,27 @@ class JUPEDSIM_OT_load_simulation(Operator):
             return True
         return False
 
-    def _timed_start(self, name):
+    def _timed_start(self, name: str) -> None:
         """Start a named timing section."""
+        assert self._timings is not None
         self._timings[name] = -time.perf_counter()
 
-    def _timed_end(self, name):
+    def _timed_end(self, name: str) -> None:
         """Stop a named timing section and log it."""
+        assert self._timings is not None
         if name in self._timings:
             self._timings[name] = time.perf_counter() + self._timings[name]
             print(f"[BlenderJPS] {name} took {self._timings[name]:.3f}s")
 
-    def _log_timings(self):
+    def _log_timings(self) -> None:
         """Print the timing summary."""
+        if self._timings is None:
+            return
         print("[BlenderJPS] Timing summary:")
         for key, value in self._timings.items():
             print(f"  - {key}: {value:.3f}s")
 
-    def _print_worker_traceback(self):
+    def _print_worker_traceback(self) -> None:
         """Print worker thread traceback if available."""
         trace = getattr(self, "_worker_traceback", None)
         if trace:
@@ -417,12 +454,12 @@ classes = [
 ]
 
 
-def register():
+def register() -> None:
     for cls in classes:
         bpy.utils.register_class(cls)
 
 
-def unregister():
+def unregister() -> None:
     clear_stream_state()
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
