@@ -209,7 +209,7 @@ def create_landing_ramps(landings, levels, collection, mat_cache):
         span = p_max - p_min if p_max > p_min else 1.0
         verts3d = [
             (x, y, z_from + (proj - p_min) / span * (z_to - z_from))
-            for (x, y), proj in zip(coords, projs)
+            for (x, y), proj in zip(coords, projs, strict=True)
         ]
 
         mesh = bpy.data.meshes.new(f"JuPedSim_Ramp_{from_id}_{to_id}_{landing_idx}_Mesh")
@@ -260,8 +260,7 @@ def _normalize_levels_arg(arg):
 def _polygon_parts(geom):
     """Yield each Polygon part of a Polygon or MultiPolygon."""
     if hasattr(geom, "geoms"):  # MultiPolygon
-        for g in geom.geoms:
-            yield g
+        yield from geom.geoms
     else:
         yield geom
 
