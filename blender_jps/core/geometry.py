@@ -124,6 +124,106 @@ def create_geometry(context, geometry_or_levels, collection, mat_cache):
     return num_curves
 
 
+def create_landing_ramps(landings, levels, collection, mat_cache):
+    """Render each landing as a sloped quad connecting its two slabs.
+
+    A landing has a polygon on the source level (``z_from``) and one on
+    the destination level (``z_to``); in jupedsim's model they overlap
+    in plan. To turn the visual gap between floating slabs into a
+    physical-looking ramp, we slope the landing polygon: vertices on the
+    side closest to the destination level's centroid sit at ``z_to``,
+    the opposite side sits at ``z_from``, and the rest interpolate
+    linearly along that axis.
+
+    Returns the number of ramps created.
+    """
+    if not landings:
+        return 0
+
+    ramp_material = get_or_create_material(
+        mat_cache, "JuPedSim_Ramp_Material", (0.7, 0.55, 0.35, 1.0)
+    )
+
+    level_z = {lvl["id"]: float(lvl["z"]) for lvl in levels}
+    level_centroids = {}
+    for lvl in levels:
+        poly = lvl["polygon"]
+        c = poly.centroid
+        level_centroids[lvl["id"]] = (c.x, c.y)
+
+    count = 0
+    for landing in landings:
+        from_id = landing["from"]
+        to_id = landing["to"]
+        z_from = float(level_z.get(from_id, 0.0))
+        z_to = float(level_z.get(to_id, 0.0))
+        poly = landing["polygon_from"]
+        if poly is None or not hasattr(poly, "exterior"):
+            continue
+        coords = list(poly.exterior.coords)
+        if len(coords) < 3:
+            continue
+        # Open the ring (drop duplicate last vertex) before extracting
+        # vertices for the mesh.
+        if coords[0] == coords[-1]:
+            coords = coords[:-1]
+
+        # Pick the slope direction: from the landing's centroid toward
+        # the destination level's centroid. Falls back to +y if we don't
+        # know the destination centroid.
+        landing_centroid = _polygon_centroid(coords)
+        target_centroid = level_centroids.get(to_id)
+        if target_centroid is None:
+            dx, dy = 0.0, 1.0
+        else:
+            dx = target_centroid[0] - landing_centroid[0]
+            dy = target_centroid[1] - landing_centroid[1]
+            mag = (dx * dx + dy * dy) ** 0.5
+            if mag < 1e-9:
+                dx, dy = 0.0, 1.0
+            else:
+                dx /= mag
+                dy /= mag
+
+        # Project each vertex onto the direction vector; min projection
+        # sits at z_from, max at z_to, the rest interpolate.
+        projs = [(x - landing_centroid[0]) * dx + (y - landing_centroid[1]) * dy
+                 for x, y in coords]
+        p_min = min(projs)
+        p_max = max(projs)
+        span = p_max - p_min if p_max > p_min else 1.0
+        verts3d = [
+            (x, y, z_from + (proj - p_min) / span * (z_to - z_from))
+            for (x, y), proj in zip(coords, projs)
+        ]
+
+        mesh = bpy.data.meshes.new(f"JuPedSim_Ramp_{from_id}_{to_id}_Mesh")
+        bm = bmesh.new()
+        bm_verts = [bm.verts.new(v) for v in verts3d]
+        try:
+            bm.faces.new(bm_verts)
+        except ValueError:
+            # Degenerate (collinear) — skip rather than crash.
+            bm.free()
+            continue
+        bm.to_mesh(mesh)
+        bm.free()
+        ramp = bpy.data.objects.new(f"JuPedSim_Ramp_{from_id}_{to_id}", mesh)
+        assign_material(ramp, ramp_material)
+        collection.objects.link(ramp)
+        count += 1
+    return count
+
+
+def _polygon_centroid(coords):
+    n = len(coords)
+    if n == 0:
+        return (0.0, 0.0)
+    sx = sum(c[0] for c in coords)
+    sy = sum(c[1] for c in coords)
+    return (sx / n, sy / n)
+
+
 def _normalize_levels_arg(arg):
     """Coerce the legacy single-polygon input into the multi-level shape."""
     if isinstance(arg, list) and arg and isinstance(arg[0], dict) and "polygon" in arg[0]:
