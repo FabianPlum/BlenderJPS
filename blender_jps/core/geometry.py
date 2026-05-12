@@ -82,11 +82,13 @@ def create_geometry(context, geometry_or_levels, collection, mat_cache):
     num_curves = 0
     for lvl in levels:
         polygon = lvl["polygon"]
+        if polygon is None or polygon.is_empty:
+            continue
+        lvl_bounds = polygon.bounds
+        if not _bounds_finite(lvl_bounds):
+            continue
         z = float(lvl["z"])
         lvl_id = lvl["id"]
-        lvl_bounds = polygon.bounds  # tight bounds per level for the slab
-        if not lvl_bounds:
-            continue
         slab_min_x = lvl_bounds[0] - pad_x * 0.1
         slab_max_x = lvl_bounds[2] + pad_x * 0.1
         slab_min_y = lvl_bounds[1] - pad_y * 0.1
@@ -101,10 +103,12 @@ def create_geometry(context, geometry_or_levels, collection, mat_cache):
             plane_material,
             collection,
         )
-        for poly_part in _polygon_parts(polygon):
+        for part_idx, poly_part in enumerate(_polygon_parts(polygon)):
+            # Include the MultiPolygon part index so multiple boundaries
+            # on the same level are distinguishable in the outliner.
             num_curves += _create_curve_from_coords(
                 context,
-                f"Walkable_Boundary_L{lvl_id}",
+                f"Walkable_Boundary_L{lvl_id}_p{part_idx}",
                 list(poly_part.exterior.coords),
                 collection,
                 mat_cache,
@@ -114,7 +118,7 @@ def create_geometry(context, geometry_or_levels, collection, mat_cache):
             for i, interior in enumerate(poly_part.interiors):
                 num_curves += _create_curve_from_coords(
                     context,
-                    f"Obstacle_L{lvl_id}_{i}",
+                    f"Obstacle_L{lvl_id}_p{part_idx}_{i}",
                     list(interior.coords),
                     collection,
                     mat_cache,
@@ -122,6 +126,17 @@ def create_geometry(context, geometry_or_levels, collection, mat_cache):
                     z=z,
                 )
     return num_curves
+
+
+def _bounds_finite(bounds):
+    """``shapely.Geometry.bounds`` is always a 4-tuple; for empty or
+    degenerate geometries the entries can be NaN/inf. Guard against
+    propagating those into viewport clip / padding math."""
+    import math
+
+    if not bounds or len(bounds) != 4:
+        return False
+    return all(math.isfinite(v) for v in bounds)
 
 
 def create_landing_ramps(landings, levels, collection, mat_cache):
@@ -152,7 +167,7 @@ def create_landing_ramps(landings, levels, collection, mat_cache):
         level_centroids[lvl["id"]] = (c.x, c.y)
 
     count = 0
-    for landing in landings:
+    for landing_idx, landing in enumerate(landings):
         from_id = landing["from"]
         to_id = landing["to"]
         z_from = float(level_z.get(from_id, 0.0))
@@ -197,7 +212,7 @@ def create_landing_ramps(landings, levels, collection, mat_cache):
             for (x, y), proj in zip(coords, projs)
         ]
 
-        mesh = bpy.data.meshes.new(f"JuPedSim_Ramp_{from_id}_{to_id}_Mesh")
+        mesh = bpy.data.meshes.new(f"JuPedSim_Ramp_{from_id}_{to_id}_{landing_idx}_Mesh")
         bm = bmesh.new()
         bm_verts = [bm.verts.new(v) for v in verts3d]
         try:
@@ -208,7 +223,7 @@ def create_landing_ramps(landings, levels, collection, mat_cache):
             continue
         bm.to_mesh(mesh)
         bm.free()
-        ramp = bpy.data.objects.new(f"JuPedSim_Ramp_{from_id}_{to_id}", mesh)
+        ramp = bpy.data.objects.new(f"JuPedSim_Ramp_{from_id}_{to_id}_{landing_idx}", mesh)
         assign_material(ramp, ramp_material)
         collection.objects.link(ramp)
         count += 1
@@ -225,9 +240,19 @@ def _polygon_centroid(coords):
 
 
 def _normalize_levels_arg(arg):
-    """Coerce the legacy single-polygon input into the multi-level shape."""
-    if isinstance(arg, list) and arg and isinstance(arg[0], dict) and "polygon" in arg[0]:
-        return arg
+    """Coerce the legacy single-polygon input into the multi-level shape.
+
+    An empty list is returned as-is (caller short-circuits on no levels);
+    a single shapely Polygon/MultiPolygon (or any object exposing a
+    ``polygon`` attribute) is wrapped into one level at z=0.
+    """
+    if isinstance(arg, list):
+        if not arg:
+            return []
+        if isinstance(arg[0], dict) and "polygon" in arg[0]:
+            return arg
+        # A non-empty list that isn't level dicts is unexpected; fall back
+        # to treating it as not-a-level-list to avoid a confusing crash.
     polygon = arg.polygon if hasattr(arg, "polygon") else arg
     return [{"id": 0, "z": 0.0, "polygon": polygon}]
 
@@ -244,8 +269,11 @@ def _polygon_parts(geom):
 def _combined_bounds(levels):
     out = None
     for lvl in levels:
-        b = lvl["polygon"].bounds
-        if not b:
+        poly = lvl["polygon"]
+        if poly is None or poly.is_empty:
+            continue
+        b = poly.bounds
+        if not _bounds_finite(b):
             continue
         if out is None:
             out = list(b)

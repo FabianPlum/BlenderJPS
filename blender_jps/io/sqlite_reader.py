@@ -126,15 +126,24 @@ def read_simulation_data(path, frame_step, load_full_paths, cancel_event):
 
 
 def _load_levels_and_landings(cur, version):
-    """Return (levels, landings). v2 files synthesize one level at z=0."""
+    """Return (levels, landings). v2 files (or v3 files whose ``levels``
+    table is missing/corrupt) synthesize one level at z=0 from the legacy
+    ``geometry`` table when possible."""
     import shapely
 
     if version >= 3:
         levels = []
-        for lvl_id, z, wkt in cur.execute("SELECT id, z, wkt FROM levels ORDER BY id ASC"):
-            levels.append(
-                {"id": int(lvl_id), "z": float(z), "polygon": shapely.from_wkt(wkt)}
-            )
+        try:
+            for lvl_id, z, wkt in cur.execute(
+                "SELECT id, z, wkt FROM levels ORDER BY id ASC"
+            ):
+                levels.append(
+                    {"id": int(lvl_id), "z": float(z), "polygon": shapely.from_wkt(wkt)}
+                )
+        except sqlite3.Error:
+            # `levels` table missing despite version=3 — fall through to
+            # the legacy path rather than aborting the whole load.
+            levels = []
         landings = []
         try:
             for from_lvl, to_lvl, p_from, p_to in cur.execute(
@@ -153,9 +162,13 @@ def _load_levels_and_landings(cur, version):
         if levels:
             return levels, landings
 
-    # v2 fallback or missing levels: synthesize one level at z=0 from
-    # whatever the legacy ``geometry`` table holds.
-    res = cur.execute("SELECT wkt FROM geometry").fetchall()
+    # v2 fallback or missing/empty v3 ``levels``: synthesize one level at
+    # z=0 from the legacy ``geometry`` table. If that table is also
+    # missing we hand back an empty result rather than crashing.
+    try:
+        res = cur.execute("SELECT wkt FROM geometry").fetchall()
+    except sqlite3.Error:
+        return [], []
     polygons = [shapely.from_wkt(s[0]) for s in res]
     if polygons:
         merged = shapely.union_all(polygons)

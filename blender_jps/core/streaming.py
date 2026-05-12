@@ -8,7 +8,9 @@ import bpy
 
 from ..io.sqlite_reader import query_frame_positions
 
-FrameData = dict[int, list[tuple[int, float, float]]]
+# Each row is ``(id, x, y)`` (legacy HDF5 buffers) or ``(id, x, y, z)``
+# (v3 SQLite buffers); the frame handler normalizes both via _with_z().
+FrameData = dict[int, list[tuple[int, float, float] | tuple[int, float, float, float]]]
 
 STREAM_STATE: dict[str, Any] = {
     "db_path": None,
