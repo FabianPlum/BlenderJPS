@@ -81,23 +81,26 @@ def create_navmesh_objects(
     if not _engines:
         return 0
 
-    # Slate blue — distinguishable from the dark geometry boundaries
-    # without competing for attention. Saturated enough to read in both
-    # Material and Object viewport color modes.
-    material = get_or_create_material(
-        mat_cache, "JuPedSim_Navmesh_Material", (0.25, 0.45, 0.75, 1.0)
-    )
+    # Vivid blue — saturated enough to still read as blue once Workbench
+    # studio lighting darkens the side facets of the wireframe tubes.
+    color = (0.1, 0.45, 1.0, 1.0)
+    material = get_or_create_material(mat_cache, "JuPedSim_Navmesh_Material", color)
+    # Matte and non-metallic so the studio matcap doesn't put a white
+    # specular highlight on top of the tint.
+    material.metallic = 0.0
+    material.roughness = 1.0
+    material.specular_intensity = 0.0
     level_z = {int(lvl["id"]): float(lvl["z"]) for lvl in nav_levels}
 
     count = 0
     for level_id, engine in _engines.items():
         z = level_z.get(level_id, 0.0) + _NAVMESH_Z_OFFSET
-        if _build_navmesh_object(level_id, engine, z, material, collection) is not None:
+        if _build_navmesh_object(level_id, engine, z, material, color, collection) is not None:
             count += 1
     return count
 
 
-def _build_navmesh_object(level_id, engine, z, material, collection):
+def _build_navmesh_object(level_id, engine, z, material, color, collection):
     try:
         verts2d, polys = engine.mesh()
     except Exception as exc:  # noqa: BLE001
@@ -120,12 +123,14 @@ def _build_navmesh_object(level_id, engine, z, material, collection):
     # would draw in the theme's wire color and look identical to the
     # geometry boundaries.
     mod = obj.modifiers.new(name="Wireframe", type="WIREFRAME")
-    mod.thickness = 0.08
+    # Thin enough that side facets are barely visible from any angle —
+    # what you see is the top facet's color, not the shaded sides.
+    mod.thickness = 0.04
     mod.use_replace = True
     mod.use_even_offset = False
     # Mirror the material color into obj.color so users with viewport
     # shading set to "Object" color also see the tint.
-    obj.color = (0.25, 0.45, 0.75, 1.0)
+    obj.color = color
     obj.hide_render = True
     collection.objects.link(obj)
     return obj
