@@ -314,6 +314,10 @@ class JUPEDSIM_OT_load_simulation(Operator):
         self._materials = {}
         clear_stream_state()
         nav.clear_engines()
+        # Stale routes from a prior load reference coords that may no
+        # longer match the new geometry.
+        if nav.ROUTE_COLLECTION in bpy.data.collections:
+            nav.clear_routes(bpy.data.collections[nav.ROUTE_COLLECTION])
 
     def _finish_success(self, context: Context) -> set[str]:
         """Finalize a successful load."""
@@ -490,6 +494,7 @@ class JUPEDSIM_OT_pick_route(Operator):
     _level_id: int = 0
     _z: float = 0.0
     _from_xy: tuple[float, float] | None = None
+    _from_routable: bool = False
     _last_length: float | None = None
     _collection: bpy.types.Collection | None = None
     _materials: dict | None = None
@@ -509,6 +514,7 @@ class JUPEDSIM_OT_pick_route(Operator):
         self._level_id = level_id
         self._z = _level_z_lookup(level_id)
         self._from_xy = None
+        self._from_routable = False
         self._last_length = None
         self._materials = {}
         self._collection = _get_or_link_collection(context, nav.ROUTE_COLLECTION)
@@ -523,19 +529,36 @@ class JUPEDSIM_OT_pick_route(Operator):
         if event.type in {"ESC", "RIGHTMOUSE"} and event.value == "PRESS":
             return self._end(context, cancel=True)
 
+        # Only act on mouse events that originated in a 3D viewport.
+        # Without this guard, an LMB press in the outliner / properties
+        # panel would feed a non-VIEW_3D RegionView3D into the screen-to-
+        # world projection and yield a junk pick.
+        in_view3d = context.area is not None and context.area.type == "VIEW_3D"
+
         if event.type == "LEFTMOUSE" and event.value == "PRESS":
+            if not in_view3d:
+                return {"PASS_THROUGH"}
             xy = self._screen_to_world(context, event)
             if xy is None:
                 return {"RUNNING_MODAL"}
             self._from_xy = xy
+            self._from_routable = nav.is_routable(self._level_id, xy)
             return {"RUNNING_MODAL"}
 
         if event.type == "MOUSEMOVE" and self._from_xy is not None:
+            if not in_view3d:
+                return {"PASS_THROUGH"}
             xy = self._screen_to_world(context, event)
             if xy is None:
                 return {"RUNNING_MODAL"}
             length, err = nav.update_live_route(
-                self._level_id, self._from_xy, xy, self._z, self._collection, self._materials
+                self._level_id,
+                self._from_xy,
+                xy,
+                self._z,
+                self._collection,
+                self._materials,
+                from_routable=self._from_routable,
             )
             self._last_length = length
             msg = (
@@ -547,6 +570,8 @@ class JUPEDSIM_OT_pick_route(Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
+            if not in_view3d:
+                return {"PASS_THROUGH"}
             return self._end(context, cancel=False)
 
         return {"PASS_THROUGH"}

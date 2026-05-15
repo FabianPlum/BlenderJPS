@@ -48,6 +48,13 @@ def available_levels() -> list[int]:
     return sorted(_engines.keys())
 
 
+def is_routable(level_id: int, xy: tuple[float, float]) -> bool:
+    engine = _engines.get(int(level_id))
+    if engine is None:
+        return False
+    return bool(engine.is_routable(xy))
+
+
 def build_routing_engines(nav_levels: list[dict]) -> dict[int, Any]:
     """Build one :class:`RoutingEngine` per level.
 
@@ -136,64 +143,6 @@ def _build_navmesh_object(level_id, engine, z, material, color, collection):
     return obj
 
 
-def compute_route_curve(
-    level_id: int,
-    from_xy: tuple[float, float],
-    to_xy: tuple[float, float],
-    z: float,
-    collection: bpy.types.Collection,
-    mat_cache: dict,
-) -> tuple[object | None, float, str | None]:
-    """Compute a path on the cached engine and render it as a curve.
-
-    Returns ``(curve_obj, length, error_message)``. ``curve_obj`` is None
-    when the query couldn't be served; ``error_message`` describes why.
-    """
-    engine = _engines.get(int(level_id))
-    if engine is None:
-        return None, 0.0, f"No routing engine for level {level_id}"
-
-    if not engine.is_routable(from_xy):
-        return None, 0.0, f"From point {from_xy} is not in the walkable area"
-    if not engine.is_routable(to_xy):
-        return None, 0.0, f"To point {to_xy} is not in the walkable area"
-
-    try:
-        waypoints = engine.compute_waypoints(from_xy, to_xy)
-    except Exception as exc:  # noqa: BLE001
-        return None, 0.0, f"compute_waypoints failed: {exc}"
-
-    if len(waypoints) < 2:
-        return None, 0.0, "Router returned an empty path"
-
-    length = 0.0
-    for a, b in zip(waypoints[:-1], waypoints[1:], strict=True):
-        length += math.hypot(a[0] - b[0], a[1] - b[1])
-
-    name = _next_route_name(collection, level_id)
-    curve_data = bpy.data.curves.new(name=name, type="CURVE")
-    curve_data.dimensions = "3D"
-    curve_data.resolution_u = 2
-    spline = curve_data.splines.new("POLY")
-    spline.points.add(len(waypoints) - 1)
-    route_z = z + _ROUTE_Z_OFFSET
-    for i, pt in enumerate(waypoints):
-        spline.points[i].co = (float(pt[0]), float(pt[1]), route_z, 1.0)
-    spline.use_cyclic_u = False
-    curve_data.bevel_depth = 0.05
-    curve_data.bevel_resolution = 2
-
-    material = get_or_create_material(mat_cache, "JuPedSim_Route_Material", (1.0, 0.05, 0.05, 1.0))
-    curve_obj = bpy.data.objects.new(name, curve_data)
-    assign_material(curve_obj, material)
-    collection.objects.link(curve_obj)
-
-    _add_route_endpoint(name + "_From", from_xy, route_z, collection, material)
-    _add_route_endpoint(name + "_To", to_xy, route_z, collection, material)
-
-    return curve_obj, length, None
-
-
 def _next_route_name(collection, level_id):
     """Avoid clobbering prior routes — they're cheap and useful side-by-side."""
     n = 0
@@ -204,18 +153,6 @@ def _next_route_name(collection, level_id):
     return f"{prefix}{n}"
 
 
-def _add_route_endpoint(name, xy, z, collection, material):
-    mesh = bpy.data.meshes.new(f"{name}_Mesh")
-    bm = bmesh.new()
-    bmesh.ops.create_uvsphere(bm, u_segments=12, v_segments=8, radius=0.15)
-    bm.to_mesh(mesh)
-    bm.free()
-    obj = bpy.data.objects.new(name, mesh)
-    obj.location = (float(xy[0]), float(xy[1]), float(z))
-    assign_material(obj, material)
-    collection.objects.link(obj)
-
-
 def update_live_route(
     level_id: int,
     from_xy: tuple[float, float],
@@ -223,8 +160,12 @@ def update_live_route(
     z: float,
     collection: bpy.types.Collection,
     mat_cache: dict,
+    from_routable: bool | None = None,
 ) -> tuple[float | None, str | None]:
     """Replace the single live-route curve in place. Cheap to call per mousemove.
+
+    Pass ``from_routable`` to skip re-checking ``is_routable(from_xy)``
+    on the hot path — the source doesn't move during a drag.
 
     Returns ``(length, error)``. ``length`` is None when the query was
     rejected (out of walkable area, empty path); the curve is hidden in
@@ -234,7 +175,9 @@ def update_live_route(
     if engine is None:
         return None, f"No routing engine for level {level_id}"
 
-    if not engine.is_routable(from_xy) or not engine.is_routable(to_xy):
+    if from_routable is None:
+        from_routable = bool(engine.is_routable(from_xy))
+    if not from_routable or not engine.is_routable(to_xy):
         _hide_live_route()
         return None, None
 
@@ -270,6 +213,8 @@ def _set_live_route_curve(waypoints, route_z, collection, material):
         curve_data.bevel_resolution = 2
         obj = bpy.data.objects.new(LIVE_ROUTE_NAME, curve_data)
         assign_material(obj, material)
+        # Debug overlay — must not bleed into final renders.
+        obj.hide_render = True
         collection.objects.link(obj)
     curve_data = obj.data
     curve_data.splines.clear()
@@ -291,6 +236,7 @@ def _set_live_endpoint(name, xy, z, collection, material):
         bm.free()
         obj = bpy.data.objects.new(name, mesh)
         assign_material(obj, material)
+        obj.hide_render = True
         collection.objects.link(obj)
     obj.location = (float(xy[0]), float(xy[1]), float(z))
     obj.hide_viewport = False
@@ -307,7 +253,23 @@ def remove_live_route():
     for n in (LIVE_ROUTE_NAME, LIVE_FROM_NAME, LIVE_TO_NAME):
         obj = bpy.data.objects.get(n)
         if obj is not None:
-            bpy.data.objects.remove(obj, do_unlink=True)
+            _remove_object_with_data(obj)
+
+
+def _remove_object_with_data(obj) -> None:
+    """Remove an object and free its mesh/curve datablock.
+
+    Without this the per-pick endpoint meshes and curves linger as
+    orphan data and accumulate over a session.
+    """
+    data = obj.data
+    bpy.data.objects.remove(obj, do_unlink=True)
+    if data is None or data.users:
+        return
+    if isinstance(data, bpy.types.Mesh):
+        bpy.data.meshes.remove(data)
+    elif isinstance(data, bpy.types.Curve):
+        bpy.data.curves.remove(data)
 
 
 def commit_live_route(level_id: int, collection: bpy.types.Collection) -> bool:
@@ -339,7 +301,7 @@ def clear_navmesh_objects(collection: bpy.types.Collection) -> int:
     n = 0
     for obj in list(collection.objects):
         if obj.name.startswith("JuPedSim_Navmesh_"):
-            bpy.data.objects.remove(obj, do_unlink=True)
+            _remove_object_with_data(obj)
             n += 1
     return n
 
@@ -349,7 +311,7 @@ def clear_routes(collection: bpy.types.Collection) -> int:
     n = 0
     for obj in list(collection.objects):
         if obj.name.startswith("Route_"):
-            bpy.data.objects.remove(obj, do_unlink=True)
+            _remove_object_with_data(obj)
             n += 1
     return n
 
