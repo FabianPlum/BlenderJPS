@@ -547,8 +547,7 @@ class JUPEDSIM_OT_pick_route(Operator):
             return {"RUNNING_MODAL"}
 
         if event.type == "LEFTMOUSE" and event.value == "RELEASE":
-            self._from_xy = None
-            return {"RUNNING_MODAL"}
+            return self._end(context, cancel=False)
 
         return {"PASS_THROUGH"}
 
@@ -557,6 +556,8 @@ class JUPEDSIM_OT_pick_route(Operator):
         if cancel:
             nav.remove_live_route()
             return {"CANCELLED"}
+        if self._collection is not None:
+            nav.commit_live_route(self._level_id, self._collection)
         return {"FINISHED"}
 
     def _screen_to_world(self, context: Context, event: bpy.types.Event):

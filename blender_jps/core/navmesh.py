@@ -81,10 +81,11 @@ def create_navmesh_objects(
     if not _engines:
         return 0
 
-    # Muted slate-blue: distinguishable from the dark geometry curves
-    # without competing for attention.
+    # Slate blue — distinguishable from the dark geometry boundaries
+    # without competing for attention. Saturated enough to read in both
+    # Material and Object viewport color modes.
     material = get_or_create_material(
-        mat_cache, "JuPedSim_Navmesh_Material", (0.35, 0.5, 0.65, 1.0)
+        mat_cache, "JuPedSim_Navmesh_Material", (0.25, 0.45, 0.75, 1.0)
     )
     level_z = {int(lvl["id"]): float(lvl["z"]) for lvl in nav_levels}
 
@@ -119,9 +120,12 @@ def _build_navmesh_object(level_id, engine, z, material, collection):
     # would draw in the theme's wire color and look identical to the
     # geometry boundaries.
     mod = obj.modifiers.new(name="Wireframe", type="WIREFRAME")
-    mod.thickness = 0.03
+    mod.thickness = 0.08
     mod.use_replace = True
     mod.use_even_offset = False
+    # Mirror the material color into obj.color so users with viewport
+    # shading set to "Object" color also see the tint.
+    obj.color = (0.25, 0.45, 0.75, 1.0)
     obj.hide_render = True
     collection.objects.link(obj)
     return obj
@@ -299,6 +303,30 @@ def remove_live_route():
         obj = bpy.data.objects.get(n)
         if obj is not None:
             bpy.data.objects.remove(obj, do_unlink=True)
+
+
+def commit_live_route(level_id: int, collection: bpy.types.Collection) -> bool:
+    """Promote the live route + endpoints to numbered persistent objects.
+
+    Returns True if a live route existed and was renamed; False otherwise.
+    """
+    live = bpy.data.objects.get(LIVE_ROUTE_NAME)
+    if live is None or live.hide_viewport:
+        return False
+    base = _next_route_name(collection, level_id)
+    rename_map = {
+        LIVE_ROUTE_NAME: base,
+        LIVE_FROM_NAME: base + "_From",
+        LIVE_TO_NAME: base + "_To",
+    }
+    for old, new in rename_map.items():
+        obj = bpy.data.objects.get(old)
+        if obj is None:
+            continue
+        obj.name = new
+        if obj.data is not None:
+            obj.data.name = new + "_Mesh" if obj.type == "MESH" else new
+    return True
 
 
 def clear_navmesh_objects(collection: bpy.types.Collection) -> int:
