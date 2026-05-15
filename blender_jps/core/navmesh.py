@@ -23,8 +23,8 @@ import bpy
 
 from .geometry import assign_material, get_or_create_material
 
-NAVMESH_COLLECTION = "JuPedSim_Geometry"
-ROUTE_COLLECTION = "JuPedSim_Geometry"
+NAVMESH_COLLECTION = "JuPedSim_Navmesh"
+ROUTE_COLLECTION = "JuPedSim_Routes"
 LIVE_ROUTE_NAME = "Route_Live"
 LIVE_FROM_NAME = "Route_Live_From"
 LIVE_TO_NAME = "Route_Live_To"
