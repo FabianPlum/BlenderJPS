@@ -277,6 +277,7 @@ class JUPEDSIM_OT_load_simulation(Operator):
                     frame_data=self._worker_data.get("frame_data"),
                 )
             context.scene.frame_set(context.scene.frame_start)
+            _switch_to_top_view(context)
             self._timed_end("finalize")
             props.loading_progress = 100.0
             props.loading_message = "Load complete"
@@ -606,6 +607,24 @@ class JUPEDSIM_OT_pick_route(Operator):
         if hit is None:
             return None
         return (float(hit.x), float(hit.y))
+
+
+def _switch_to_top_view(context: Context) -> None:
+    """Set every 3D viewport to top-orthographic and frame the geometry.
+
+    Matches jupedsim_visualizer's default — when you load a trajectory
+    you almost always want the floor plan, not the user's prior camera.
+    """
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            region = next((r for r in area.regions if r.type == "WINDOW"), None)
+            if region is None:
+                continue
+            with context.temp_override(window=window, area=area, region=region):
+                bpy.ops.view3d.view_axis(type="TOP")
+                bpy.ops.view3d.view_all()
 
 
 def _get_or_link_collection(context: Context, name: str) -> bpy.types.Collection:
