@@ -34,10 +34,19 @@ _NAVMESH_Z_OFFSET = 0.02
 _ROUTE_Z_OFFSET = 0.05
 
 _engines: dict[int, Any] = {}
+# Single source of truth for per-level z. Both the navmesh objects and
+# the route picker read from here so they can't drift apart.
+_level_z: dict[int, float] = {}
 
 
 def clear_engines() -> None:
     _engines.clear()
+    _level_z.clear()
+
+
+def level_z(level_id: int) -> float:
+    """Return the z of a built level, or 0.0 if the level isn't loaded."""
+    return _level_z.get(int(level_id), 0.0)
 
 
 def get_engine(level_id: int) -> object | None:
@@ -72,8 +81,10 @@ def build_routing_engines(nav_levels: list[dict]) -> dict[int, Any]:
         polygon = lvl.get("polygon")
         if polygon is None or polygon.is_empty:
             continue
+        lvl_id = int(lvl["id"])
         try:
-            _engines[int(lvl["id"])] = RoutingEngine(polygon)
+            _engines[lvl_id] = RoutingEngine(polygon)
+            _level_z[lvl_id] = float(lvl.get("z", 0.0))
         except Exception as exc:  # noqa: BLE001 — surface but don't abort
             print(f"[BlenderJPS] navmesh: skipping level {lvl.get('id')}: {exc}")
     return dict(_engines)
@@ -144,13 +155,25 @@ def _build_navmesh_object(level_id, engine, z, material, color, collection):
 
 
 def _next_route_name(collection, level_id):
-    """Avoid clobbering prior routes — they're cheap and useful side-by-side."""
-    n = 0
+    """Pick the next free ``Route_L{lvl}_<n>`` suffix.
+
+    Counting wouldn't work: after deleting a middle route Blender would
+    suffix the new object with ``.001`` to avoid the collision. Scan
+    existing suffixes and pick max+1 instead.
+    """
     prefix = f"Route_L{level_id}_"
+    highest = -1
     for obj in collection.objects:
-        if obj.name.startswith(prefix):
-            n += 1
-    return f"{prefix}{n}"
+        if not obj.name.startswith(prefix):
+            continue
+        tail = obj.name[len(prefix) :].split("_", 1)[0]
+        try:
+            n = int(tail)
+        except ValueError:
+            continue
+        if n > highest:
+            highest = n
+    return f"{prefix}{highest + 1}"
 
 
 def update_live_route(

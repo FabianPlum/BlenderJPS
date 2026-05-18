@@ -192,7 +192,13 @@ class JUPEDSIM_OT_load_simulation(Operator):
         if self._stage == "create_geometry":
             assert self._worker_data is not None
             self._timed_start("create_geometry")
-            geometry_arg = self._worker_data.get("levels") or self._worker_data["geometry"]
+            # Explicit None-check: an empty levels list (legitimate v3
+            # "no floors" case) is different from the legacy single-
+            # floor geometry path. Don't let a truthy-or-fallback hide it.
+            if self._worker_data.get("levels") is not None:
+                geometry_arg = self._worker_data["levels"]
+            else:
+                geometry_arg = self._worker_data["geometry"]
             num_curves = geo.create_geometry(
                 context,
                 self._worker_data["geometry"],
@@ -213,6 +219,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
             self._timed_end("build_navmesh")
             if engines:
                 self.report({"INFO"}, f"Built routing engines for {len(engines)} level(s)")
+            elif not install_utils.is_jupedsim_installed(ADDON_DIR):
+                self.report({"INFO"}, "jupedsim not installed — navmesh / route picker disabled")
             self._stage = "create_big_data" if self._big_data_mode else "create_agents"
 
         if self._stage == "create_agents":
@@ -610,21 +618,27 @@ class JUPEDSIM_OT_pick_route(Operator):
 
 
 def _switch_to_top_view(context: Context) -> None:
-    """Set every 3D viewport to top-orthographic and frame the geometry.
+    """Set the *active* 3D viewport to top-orthographic and frame it.
 
     Matches jupedsim_visualizer's default — when you load a trajectory
     you almost always want the floor plan, not the user's prior camera.
+    Only touches the area the load was invoked from so multi-viewport
+    workspaces (e.g. perspective camera + floor plan) survive intact.
     """
-    for window in context.window_manager.windows:
-        for area in window.screen.areas:
-            if area.type != "VIEW_3D":
-                continue
-            region = next((r for r in area.regions if r.type == "WINDOW"), None)
-            if region is None:
-                continue
-            with context.temp_override(window=window, area=area, region=region):
-                bpy.ops.view3d.view_axis(type="TOP")
-                bpy.ops.view3d.view_all()
+    area = context.area
+    if area is None or area.type != "VIEW_3D":
+        area = next(
+            (a for a in context.screen.areas if a.type == "VIEW_3D"),
+            None,
+        )
+    if area is None:
+        return
+    region = next((r for r in area.regions if r.type == "WINDOW"), None)
+    if region is None:
+        return
+    with context.temp_override(window=context.window, area=area, region=region):
+        bpy.ops.view3d.view_axis(type="TOP")
+        bpy.ops.view3d.view_all()
 
 
 def _get_or_link_collection(context: Context, name: str) -> bpy.types.Collection:
@@ -643,15 +657,13 @@ def _get_or_link_collection(context: Context, name: str) -> bpy.types.Collection
 
 
 def _level_z_lookup(level_id: int) -> float:
-    """Read level z from the geometry slab object if present, else 0.0."""
-    obj = bpy.data.objects.get(f"JuPedSim_Level_{level_id}")
-    if obj is not None:
-        return float(obj.location.z + obj.bound_box[0][2])
-    # Single-floor (legacy) ground plane
-    obj = bpy.data.objects.get("JuPedSim_Ground_Plane")
-    if obj is not None:
-        return float(obj.location.z)
-    return 0.0
+    """Return the z the navmesh was built at for ``level_id``.
+
+    Reading from the engine cache (rather than re-deriving from slab
+    object locations) keeps the picking plane and the navmesh wireframe
+    aligned even if someone moves a slab object after load.
+    """
+    return nav.level_z(level_id)
 
 
 classes = [

@@ -49,7 +49,7 @@ def install_dependencies(addon_dir, timeout=300):
                 "--upgrade",
                 "--no-user",
                 "pedpy",
-                "jupedsim",
+                "jupedsim<2.0",
                 "numpy<2.0",
             ],
             timeout=timeout,
