@@ -1,8 +1,8 @@
 [![Lint](https://github.com/FabianPlum/Kinora/actions/workflows/lint.yml/badge.svg)](https://github.com/FabianPlum/Kinora/actions/workflows/lint.yml)
 [![Blender Addon CI](https://github.com/FabianPlum/Kinora/actions/workflows/blender.yml/badge.svg)](https://github.com/FabianPlum/Kinora/actions/workflows/blender.yml)
 
-<img src=images/kinora-logo-dark.svg#gh-dark-mode-only height="100">
-<img src=images/kinora-logo-light.svg#gh-light-mode-only height="100">
+<img src=images/kinora-logo-dark.svg#gh-dark-mode-only height="120">
+<img src=images/kinora-logo-light.svg#gh-light-mode-only height="120">
 
 # Kinora - Pedestrian Data Trajectory Visualiser for Blender
 

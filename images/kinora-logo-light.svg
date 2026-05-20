@@ -49,9 +49,9 @@
      inkscape:pageopacity="0"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#505050"
-     inkscape:zoom="4.9837838"
-     inkscape:cx="131.42625"
-     inkscape:cy="62.10141"
+     inkscape:zoom="14.096269"
+     inkscape:cx="82.57504"
+     inkscape:cy="38.414419"
      inkscape:window-width="3840"
      inkscape:window-height="2054"
      inkscape:window-x="2149"
@@ -72,17 +72,17 @@
   </style>
   <!-- KIN -->
   <ellipse
-     style="fill:#ffffff;fill-opacity:1"
+     style="fill:#ffffff;fill-opacity:1;stroke-width:0.927209"
      id="path9"
-     cx="106.09409"
-     cy="33.472885"
-     rx="10.082701"
-     ry="11.73807" />
+     cx="90.267815"
+     cy="33.566849"
+     rx="9.3487673"
+     ry="10.883639" />
   <text
-     x="7.2532129"
-     y="42.883034"
+     x="-1.3783008"
+     y="42.292019"
      class="kn-text"
-     style="font-style:normal;font-weight:normal;font-stretch:normal;font-size:35.9833px;font-family:'Franklin Gothic Heavy','Arial Black',sans-serif;letter-spacing:5.29167px;text-anchor:start"
+     style="font-style:normal;font-weight:normal;font-stretch:normal;font-size:33.364px;font-family:'Franklin Gothic Heavy', 'Arial Black', sans-serif;letter-spacing:4.90648px;text-anchor:start;stroke-width:0.927209"
      id="text1">KIN</text>
   <!-- Viewport brackets framing the Blender mark (the "lens" of the viewer) -->
   <g
@@ -91,7 +91,7 @@
      stroke-width="1.2"
      stroke-linecap="square"
      id="g4"
-     transform="matrix(1.1147555,0,0,1.0294796,-15.675472,-0.09652621)">
+     transform="matrix(1.0336109,0,0,0.95454234,-22.637974,2.4410024)">
     <path
        d="m 88,21 v -6 h 6"
        id="path1" />
@@ -108,7 +108,7 @@
   <!-- Blender mark replacing the O -->
   <g
      style="clip-rule:evenodd;fill-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2"
-     transform="matrix(0.23580497,0,0,0.26458333,78.162369,10.309359)"
+     transform="matrix(0.2186404,0,0,0.24532394,64.369279,12.089428)"
      id="g8">
     <g
        transform="matrix(0.281,0,0,0.281,-41.8,-43.7)"
@@ -132,14 +132,15 @@
   <!-- RA -->
   <path
      class="kn-text"
-     d="m 141.66169,42.883034 -3.49642,-9.171525 h -4.50507 v 9.171525 h -7.36182 v -23.98301 h 12.52739 c 6.1294,0 10.14816,0.04478 10.14816,0.04478 0,0 -4.28749,4.967863 -4.28749,12.00732 0,6.296464 4.28541,11.930915 4.28541,11.930915 z M 133.6602,28.581078 h 3.14503 c 0.92535,0 1.66914,-0.19327 2.23138,-0.579809 0.56224,-0.386539 0.84336,-0.954635 0.84336,-1.704287 0,-1.534444 -0.94292,-2.301666 -2.82877,-2.301666 h -3.391 z m 35.98641,14.301956 -1.35289,-4.726322 h -6.43061 l -1.44074,4.726322 h -5.97379 l 7.41453,-23.98301 h 7.7835 l 7.50238,23.98301 z m -6.53603,-9.962173 h 3.90053 l -1.95026,-6.957709 z"
-     id="path8" />
+     d="m 123.2464,42.29202 -3.24191,-8.503917 h -4.17714 v 8.503917 h -6.82594 V 20.054767 h 11.6155 c 5.68323,0 9.40946,0.04152 9.40946,0.04152 0,0 -3.9754,4.606246 -3.9754,11.133291 0,5.838135 3.97347,11.062447 3.97347,11.062447 z m -7.41905,-13.260897 h 2.9161 c 0.85799,0 1.54764,-0.179201 2.06895,-0.537604 0.52132,-0.358402 0.78197,-0.885145 0.78197,-1.580229 0,-1.42275 -0.87428,-2.134125 -2.62286,-2.134125 h -3.14416 z m 33.36691,13.260897 -1.25441,-4.382286 h -5.96252 l -1.33587,4.382286 h -5.53895 l 6.87482,-22.237253 h 7.21693 l 6.95627,22.237253 z M 143.134,33.055008 h 3.6166 l -1.8083,-6.451248 z"
+     id="path8"
+     style="stroke-width:0.927209" />
   <g
      class="kn-stroke"
      fill="none"
      stroke-width="1.2"
      stroke-linecap="square"
      id="g4-8"
-     transform="matrix(1.1147555,0,0,1.0294796,-16.733359,75.198334)"
+     transform="matrix(1.0336109,0,0,0.95454234,-23.618856,72.255044)"
      style="stroke:url(#linearGradient13);stroke-opacity:1" />
 </svg>
