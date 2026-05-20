@@ -29,7 +29,7 @@ def _handle_rmtree_error(func, path, exc_info):
         os.chmod(path, stat.S_IWRITE)
         func(path)
     except OSError:
-        raise exc_info[1]
+        raise exc_info[1] from None
 
 
 class JUPEDSIM_OT_install_dependencies(bpy.types.Operator):
