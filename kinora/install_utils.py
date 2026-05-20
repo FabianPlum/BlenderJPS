@@ -18,7 +18,7 @@ def install_dependencies(addon_dir, timeout=300):
     Install pedpy and dependencies to the addon's deps directory.
 
     Args:
-        addon_dir: Path to the addon directory (blender_jps)
+        addon_dir: Path to the addon directory (kinora)
         timeout: Timeout in seconds for pip install
 
     Returns:
