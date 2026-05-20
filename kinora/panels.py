@@ -34,9 +34,7 @@ class KINORA_PT_main_panel(Panel):
             box.label(text="Go to Edit > Preferences > Add-ons")
             box.label(text="Find 'Kinora' and install dependencies")
             box.separator()
-            box.operator(
-                "kinora.install_dependencies", text="Install Dependencies", icon="IMPORT"
-            )
+            box.operator("kinora.install_dependencies", text="Install Dependencies", icon="IMPORT")
             return
 
         # File selection section
