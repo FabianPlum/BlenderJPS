@@ -43,16 +43,26 @@ def get_or_create_collection(name):
     return collection
 
 
-def create_geometry(context, geometry, collection, mat_cache):
-    """Create curves from the walkable area geometry.
+def create_geometry(context, geometry_or_levels, collection, mat_cache):
+    """Create slabs + boundary curves for the walkable geometry.
 
-    Returns the number of boundary curves created.
+    Accepts either:
+    - A list of level dicts ``[{"id", "z", "polygon"}, ...]`` (v3 multi-
+      floor path), or
+    - A single shapely Polygon/MultiPolygon (legacy v2 path), which is
+      treated as one level at z=0.
+
+    Returns the total number of boundary curves created.
     """
-    polygon = geometry.polygon if hasattr(geometry, "polygon") else geometry
+    levels = _normalize_levels_arg(geometry_or_levels)
 
-    # Ensure viewport clip distance covers the geometry extent
-    bounds = polygon.bounds  # (minx, miny, maxx, maxy)
-    max_dim = max(bounds[2] - bounds[0], bounds[3] - bounds[1])
+    # Compute combined bounds for the viewport clip distance + ground-plane
+    # padding.
+    combined_bounds = _combined_bounds(levels)
+    if combined_bounds is None:
+        return 0
+    minx, miny, maxx, maxy = combined_bounds
+    max_dim = max(maxx - minx, maxy - miny)
     if max_dim > 0:
         for window in context.window_manager.windows:
             for area in window.screen.areas:
@@ -62,57 +72,238 @@ def create_geometry(context, geometry, collection, mat_cache):
                     if space.type == "VIEW_3D" and space.clip_end < max_dim:
                         space.clip_end = max_dim * 4
 
-    # Create a ground plane at origin, expanded 10% beyond geometry bounds.
-    span_x = max(bounds[2] - bounds[0], 0.0)
-    span_y = max(bounds[3] - bounds[1], 0.0)
-    if span_x > 0.0 and span_y > 0.0:
-        pad_x = span_x * 0.1
-        pad_y = span_y * 0.1
-        min_x = bounds[0] - pad_x
-        max_x = bounds[2] + pad_x
-        min_y = bounds[1] - pad_y
-        max_y = bounds[3] + pad_y
+    pad_x = (maxx - minx) * 0.1
+    pad_y = (maxy - miny) * 0.1
 
-        plane_mesh = bpy.data.meshes.new("JuPedSim_Ground_Plane_Mesh")
-        bm = bmesh.new()
-        verts = [
-            bm.verts.new((min_x, min_y, 0.0)),
-            bm.verts.new((max_x, min_y, 0.0)),
-            bm.verts.new((max_x, max_y, 0.0)),
-            bm.verts.new((min_x, max_y, 0.0)),
-        ]
-        bm.faces.new(verts)
-        bm.to_mesh(plane_mesh)
-        bm.free()
-        plane_obj = bpy.data.objects.new("JuPedSim_Ground_Plane", plane_mesh)
-        plane_obj.location = (0.0, 0.0, 0.0)
-        plane_material = get_or_create_material(
-            mat_cache, "JuPedSim_Ground_Plane_Material", (0.85, 0.85, 0.85, 1.0)
-        )
-        assign_material(plane_obj, plane_material)
-        collection.objects.link(plane_obj)
-
-    # Create curves for exterior boundary
-    _create_curve_from_coords(
-        context,
-        "Walkable_Area_Boundary",
-        list(polygon.exterior.coords),
-        collection,
-        mat_cache,
-        closed=True,
+    plane_material = get_or_create_material(
+        mat_cache, "JuPedSim_Ground_Plane_Material", (0.85, 0.85, 0.85, 1.0)
     )
 
-    # Create curves for any interior holes (obstacles)
-    for i, interior in enumerate(polygon.interiors):
-        _create_curve_from_coords(
-            context, f"Obstacle_{i}", list(interior.coords), collection, mat_cache, closed=True
+    num_curves = 0
+    for lvl in levels:
+        polygon = lvl["polygon"]
+        if polygon is None or polygon.is_empty:
+            continue
+        lvl_bounds = polygon.bounds
+        if not _bounds_finite(lvl_bounds):
+            continue
+        z = float(lvl["z"])
+        lvl_id = lvl["id"]
+        slab_min_x = lvl_bounds[0] - pad_x * 0.1
+        slab_max_x = lvl_bounds[2] + pad_x * 0.1
+        slab_min_y = lvl_bounds[1] - pad_y * 0.1
+        slab_max_y = lvl_bounds[3] + pad_y * 0.1
+        _create_slab(
+            f"JuPedSim_Level_{lvl_id}",
+            slab_min_x,
+            slab_min_y,
+            slab_max_x,
+            slab_max_y,
+            z,
+            plane_material,
+            collection,
         )
+        for part_idx, poly_part in enumerate(_polygon_parts(polygon)):
+            # Include the MultiPolygon part index so multiple boundaries
+            # on the same level are distinguishable in the outliner.
+            num_curves += _create_curve_from_coords(
+                context,
+                f"Walkable_Boundary_L{lvl_id}_p{part_idx}",
+                list(poly_part.exterior.coords),
+                collection,
+                mat_cache,
+                closed=True,
+                z=z,
+            )
+            for i, interior in enumerate(poly_part.interiors):
+                num_curves += _create_curve_from_coords(
+                    context,
+                    f"Obstacle_L{lvl_id}_p{part_idx}_{i}",
+                    list(interior.coords),
+                    collection,
+                    mat_cache,
+                    closed=True,
+                    z=z,
+                )
+    return num_curves
 
-    return 1 + len(list(polygon.interiors))
+
+def _bounds_finite(bounds):
+    """``shapely.Geometry.bounds`` is always a 4-tuple; for empty or
+    degenerate geometries the entries can be NaN/inf. Guard against
+    propagating those into viewport clip / padding math."""
+    import math
+
+    if not bounds or len(bounds) != 4:
+        return False
+    return all(math.isfinite(v) for v in bounds)
 
 
-def _create_curve_from_coords(context, name, coords, collection, mat_cache, closed=False):
-    """Create a curve object from a list of coordinates."""
+def create_landing_ramps(landings, levels, collection, mat_cache):
+    """Render each landing as a sloped quad connecting its two slabs.
+
+    A landing has a polygon on the source level (``z_from``) and one on
+    the destination level (``z_to``); in jupedsim's model they overlap
+    in plan. To turn the visual gap between floating slabs into a
+    physical-looking ramp, we slope the landing polygon: vertices on the
+    side closest to the destination level's centroid sit at ``z_to``,
+    the opposite side sits at ``z_from``, and the rest interpolate
+    linearly along that axis.
+
+    Returns the number of ramps created.
+    """
+    if not landings:
+        return 0
+
+    ramp_material = get_or_create_material(
+        mat_cache, "JuPedSim_Ramp_Material", (0.7, 0.55, 0.35, 1.0)
+    )
+
+    level_z = {lvl["id"]: float(lvl["z"]) for lvl in levels}
+    level_centroids = {}
+    for lvl in levels:
+        poly = lvl["polygon"]
+        c = poly.centroid
+        level_centroids[lvl["id"]] = (c.x, c.y)
+
+    count = 0
+    for landing_idx, landing in enumerate(landings):
+        from_id = landing["from"]
+        to_id = landing["to"]
+        z_from = float(level_z.get(from_id, 0.0))
+        z_to = float(level_z.get(to_id, 0.0))
+        poly = landing["polygon_from"]
+        if poly is None or not hasattr(poly, "exterior"):
+            continue
+        coords = list(poly.exterior.coords)
+        if len(coords) < 3:
+            continue
+        # Open the ring (drop duplicate last vertex) before extracting
+        # vertices for the mesh.
+        if coords[0] == coords[-1]:
+            coords = coords[:-1]
+
+        # Pick the slope direction: from the landing's centroid toward
+        # the destination level's centroid. Falls back to +y if we don't
+        # know the destination centroid.
+        landing_centroid = _polygon_centroid(coords)
+        target_centroid = level_centroids.get(to_id)
+        if target_centroid is None:
+            dx, dy = 0.0, 1.0
+        else:
+            dx = target_centroid[0] - landing_centroid[0]
+            dy = target_centroid[1] - landing_centroid[1]
+            mag = (dx * dx + dy * dy) ** 0.5
+            if mag < 1e-9:
+                dx, dy = 0.0, 1.0
+            else:
+                dx /= mag
+                dy /= mag
+
+        # Project each vertex onto the direction vector; min projection
+        # sits at z_from, max at z_to, the rest interpolate.
+        projs = [(x - landing_centroid[0]) * dx + (y - landing_centroid[1]) * dy for x, y in coords]
+        p_min = min(projs)
+        p_max = max(projs)
+        span = p_max - p_min if p_max > p_min else 1.0
+        verts3d = [
+            (x, y, z_from + (proj - p_min) / span * (z_to - z_from))
+            for (x, y), proj in zip(coords, projs, strict=True)
+        ]
+
+        mesh = bpy.data.meshes.new(f"JuPedSim_Ramp_{from_id}_{to_id}_{landing_idx}_Mesh")
+        bm = bmesh.new()
+        bm_verts = [bm.verts.new(v) for v in verts3d]
+        try:
+            bm.faces.new(bm_verts)
+        except ValueError:
+            # Degenerate (collinear) — skip rather than crash.
+            bm.free()
+            continue
+        bm.to_mesh(mesh)
+        bm.free()
+        ramp = bpy.data.objects.new(f"JuPedSim_Ramp_{from_id}_{to_id}_{landing_idx}", mesh)
+        assign_material(ramp, ramp_material)
+        collection.objects.link(ramp)
+        count += 1
+    return count
+
+
+def _polygon_centroid(coords):
+    n = len(coords)
+    if n == 0:
+        return (0.0, 0.0)
+    sx = sum(c[0] for c in coords)
+    sy = sum(c[1] for c in coords)
+    return (sx / n, sy / n)
+
+
+def _normalize_levels_arg(arg):
+    """Coerce the legacy single-polygon input into the multi-level shape.
+
+    An empty list is returned as-is (caller short-circuits on no levels);
+    a single shapely Polygon/MultiPolygon (or any object exposing a
+    ``polygon`` attribute) is wrapped into one level at z=0.
+    """
+    if isinstance(arg, list):
+        if not arg:
+            return []
+        if isinstance(arg[0], dict) and "polygon" in arg[0]:
+            return arg
+        # A non-empty list that isn't level dicts is unexpected; fall back
+        # to treating it as not-a-level-list to avoid a confusing crash.
+    polygon = arg.polygon if hasattr(arg, "polygon") else arg
+    return [{"id": 0, "z": 0.0, "polygon": polygon}]
+
+
+def _polygon_parts(geom):
+    """Yield each Polygon part of a Polygon or MultiPolygon."""
+    if hasattr(geom, "geoms"):  # MultiPolygon
+        yield from geom.geoms
+    else:
+        yield geom
+
+
+def _combined_bounds(levels):
+    out = None
+    for lvl in levels:
+        poly = lvl["polygon"]
+        if poly is None or poly.is_empty:
+            continue
+        b = poly.bounds
+        if not _bounds_finite(b):
+            continue
+        if out is None:
+            out = list(b)
+        else:
+            out[0] = min(out[0], b[0])
+            out[1] = min(out[1], b[1])
+            out[2] = max(out[2], b[2])
+            out[3] = max(out[3], b[3])
+    return tuple(out) if out is not None else None
+
+
+def _create_slab(name, min_x, min_y, max_x, max_y, z, material, collection):
+    plane_mesh = bpy.data.meshes.new(f"{name}_Mesh")
+    bm = bmesh.new()
+    verts = [
+        bm.verts.new((min_x, min_y, z)),
+        bm.verts.new((max_x, min_y, z)),
+        bm.verts.new((max_x, max_y, z)),
+        bm.verts.new((min_x, max_y, z)),
+    ]
+    bm.faces.new(verts)
+    bm.to_mesh(plane_mesh)
+    bm.free()
+    plane_obj = bpy.data.objects.new(name, plane_mesh)
+    plane_obj.location = (0.0, 0.0, 0.0)
+    assign_material(plane_obj, material)
+    collection.objects.link(plane_obj)
+    return plane_obj
+
+
+def _create_curve_from_coords(context, name, coords, collection, mat_cache, closed=False, z=0.0):
+    """Create a curve object from a list of coordinates, lifted to ``z``."""
     curve_data = bpy.data.curves.new(name=name, type="CURVE")
     curve_data.dimensions = "3D"
     curve_data.resolution_u = 2
@@ -122,7 +313,7 @@ def _create_curve_from_coords(context, name, coords, collection, mat_cache, clos
 
     for i, coord in enumerate(coords):
         x, y = coord[0], coord[1]
-        spline.points[i].co = (x, y, 0.0, 1.0)
+        spline.points[i].co = (x, y, z, 1.0)
 
     if closed:
         spline.use_cyclic_u = True
@@ -137,7 +328,7 @@ def _create_curve_from_coords(context, name, coords, collection, mat_cache, clos
     curve_data.bevel_depth = context.scene.jupedsim_props.geometry_thickness
     curve_data.bevel_resolution = 2
 
-    return curve_obj
+    return 1
 
 
 _shared_agent_mesh = None

@@ -191,14 +191,31 @@ class JUPEDSIM_OT_load_simulation(Operator):
         if self._stage == "create_geometry":
             assert self._worker_data is not None
             self._timed_start("create_geometry")
+            # v3 SQLite files carry per-level geometry; pass the list when
+            # available so each floor is rendered at its own elevation.
+            levels_list = self._worker_data.get("levels")
+            geometry_arg = levels_list or self._worker_data["geometry"]
             num_curves = geo.create_geometry(
                 context,
-                self._worker_data["geometry"],
+                geometry_arg,
                 self._geometry_collection,
                 self._materials,
             )
+            # Render landings as inclined ramps bridging neighboring slabs.
+            # Purely cosmetic — jupedsim treats landings as flat portals.
+            num_ramps = 0
+            if levels_list:
+                num_ramps = geo.create_landing_ramps(
+                    self._worker_data.get("landings", []),
+                    levels_list,
+                    self._geometry_collection,
+                    self._materials,
+                )
             self._timed_end("create_geometry")
-            self.report({"INFO"}, f"Created geometry with {num_curves} boundary curves")
+            self.report(
+                {"INFO"},
+                f"Created geometry with {num_curves} boundary curves and {num_ramps} ramps",
+            )
             props.loading_message = "Creating geometry..."
             props.loading_progress = 25.0
             self._stage = "create_big_data" if self._big_data_mode else "create_agents"
@@ -231,6 +248,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
                 mode="big",
                 object_name=obj_name,
                 frame_data=self._worker_data.get("frame_data"),
+                has_level_col=bool(self._worker_data.get("has_level_col")),
+                level_z=self._worker_data.get("level_z"),
             )
             props.loading_message = "Creating particle points..."
             props.loading_progress = 90.0
@@ -263,6 +282,8 @@ class JUPEDSIM_OT_load_simulation(Operator):
                     mode="default",
                     objects=objects,
                     frame_data=self._worker_data.get("frame_data"),
+                    has_level_col=bool(self._worker_data.get("has_level_col")),
+                    level_z=self._worker_data.get("level_z"),
                 )
             context.scene.frame_set(context.scene.frame_start)
             self._timed_end("finalize")
