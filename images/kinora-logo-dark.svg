@@ -48,7 +48,7 @@
        y1="30.5"
        x2="124.6"
        y2="30.5"
-       gradientTransform="rotate(180,106.21665,-6.7193924)" />
+       gradientTransform="matrix(-0.89969698,0,0,-0.89969698,185.78116,-15.300664)" />
     <linearGradient
        inkscape:collect="always"
        xlink:href="#swatch13"
@@ -58,7 +58,7 @@
        y1="30.5"
        x2="124.6"
        y2="30.5"
-       gradientTransform="translate(0.53998592,-74.258819)" />
+       gradientTransform="matrix(0.89969698,0,0,0.89969698,-4.8586186,-70.020265)" />
     <linearGradient
        inkscape:collect="always"
        xlink:href="#swatch13"
@@ -68,7 +68,7 @@
        y1="30.5"
        x2="124.6"
        y2="30.5"
-       gradientTransform="translate(0.53998592,-74.258819)" />
+       gradientTransform="matrix(0.89969698,0,0,0.89969698,-4.8586186,-70.020265)" />
     <linearGradient
        inkscape:collect="always"
        xlink:href="#swatch13"
@@ -78,7 +78,7 @@
        y1="30.5"
        x2="124.6"
        y2="30.5"
-       gradientTransform="translate(0.53998592,-74.258819)" />
+       gradientTransform="matrix(0.89969698,0,0,0.89969698,-4.8586186,-70.020265)" />
   </defs>
   <sodipodi:namedview
      id="namedview8"
@@ -89,9 +89,9 @@
      inkscape:pageopacity="0"
      inkscape:pagecheckerboard="0"
      inkscape:deskcolor="#505050"
-     inkscape:zoom="4.9837838"
-     inkscape:cx="131.42625"
-     inkscape:cy="62.10141"
+     inkscape:zoom="9.9675676"
+     inkscape:cx="87.584056"
+     inkscape:cy="40.882592"
      inkscape:window-width="3840"
      inkscape:window-height="2054"
      inkscape:window-x="2149"
@@ -115,17 +115,17 @@
   <!-- Blender mark replacing the O -->
   <!-- RA -->
   <ellipse
-     style="fill:#ffffff;fill-opacity:1"
+     style="fill:#ffffff;fill-opacity:1;stroke-width:0.899697"
      id="path9-9"
-     cx="105.63814"
-     cy="32.319813"
-     rx="10.082701"
-     ry="11.73807" />
+     cx="87.406158"
+     cy="33.316208"
+     rx="9.0713749"
+     ry="10.560706" />
   <text
-     x="6.7972827"
-     y="41.729961"
+     x="-1.520658"
+     y="41.78249"
      class="kn-text"
-     style="font-style:normal;font-weight:normal;font-stretch:normal;font-size:35.9833px;font-family:'Franklin Gothic Heavy', 'Arial Black', sans-serif;letter-spacing:5.29167px;text-anchor:start;fill:#ffffff;fill-opacity:1"
+     style="font-style:normal;font-weight:normal;font-stretch:normal;font-size:32.3741px;font-family:'Franklin Gothic Heavy', 'Arial Black', sans-serif;letter-spacing:4.7609px;text-anchor:start;fill:#ffffff;fill-opacity:1;stroke-width:0.899697"
      id="text1-4">KIN</text>
   <g
      class="kn-stroke"
@@ -136,26 +136,26 @@
      transform="matrix(1.1147555,0,0,1.0294796,-16.733359,75.198334)"
      style="stroke:url(#linearGradient13);stroke-opacity:1">
     <path
-       d="m 118.53999,-59.258819 h 6 v 6"
+       d="m 101.30563,-56.52481 h 5.39818 v 5.398182"
        id="path2-2"
-       style="stroke:url(#linearGradient17);stroke-opacity:1" />
+       style="stroke:url(#linearGradient17);stroke-width:1.07964;stroke-opacity:1" />
     <path
-       d="m 88.539986,-34.258819 v 6 h 6"
+       d="m 74.314715,-34.032385 v 5.398182 h 5.398182"
        id="path3-4"
-       style="stroke:url(#linearGradient18);stroke-opacity:1" />
+       style="stroke:url(#linearGradient18);stroke-width:1.07964;stroke-opacity:1" />
     <path
-       d="m 124.53999,-34.258819 v 6 h -6"
+       d="m 106.70381,-34.032385 v 5.398182 h -5.39818"
        id="path4-5"
-       style="stroke:url(#linearGradient19);stroke-opacity:1" />
+       style="stroke:url(#linearGradient19);stroke-width:1.07964;stroke-opacity:1" />
     <path
-       d="m 88.433309,-53.438785 v -6 h 6"
+       d="m 74.218738,-51.288543 v -5.398182 h 5.398182"
        id="path4-5-6"
-       style="stroke:url(#linearGradient16);stroke-opacity:1"
+       style="stroke:url(#linearGradient16);stroke-width:1.07964;stroke-opacity:1"
        sodipodi:nodetypes="ccc" />
   </g>
   <g
      style="clip-rule:evenodd;fill-rule:evenodd;stroke-linejoin:round;stroke-miterlimit:2"
-     transform="matrix(0.23580497,0,0,0.26458333,77.706433,9.1562797)"
+     transform="matrix(0.21215302,0,0,0.23804482,62.276089,12.476044)"
      id="g8-5">
     <g
        transform="matrix(0.281,0,0,0.281,-41.8,-43.7)"
@@ -180,7 +180,7 @@
   </g>
   <path
      class="kn-text"
-     d="m 141.20575,41.729961 -3.49642,-9.17153 h -4.50507 v 9.17153 h -7.36182 V 17.746945 h 12.52739 c 6.1294,0 10.14816,0.04478 10.14816,0.04478 0,0 -4.28749,4.967863 -4.28749,12.007316 0,6.29647 4.28541,11.93092 4.28541,11.93092 z m -8.00149,-14.30196 h 3.14503 c 0.92535,0 1.66914,-0.19327 2.23138,-0.57981 0.56224,-0.38654 0.84336,-0.95464 0.84336,-1.70429 0,-1.53444 -0.94292,-2.301664 -2.82877,-2.301664 h -3.391 z m 35.98641,14.30196 -1.35289,-4.72633 h -6.43061 l -1.44074,4.72633 h -5.97379 l 7.41453,-23.983016 h 7.7835 l 7.50238,23.983016 z m -6.53603,-9.96218 h 3.90053 l -1.95026,-6.95771 z"
+     d="m 119.40624,41.782486 -3.14572,-8.251597 h -4.0532 v 8.251597 h -6.6234 V 20.205039 h 11.27085 c 5.5146,0 9.13027,0.04029 9.13027,0.04029 0,0 -3.85744,4.469571 -3.85744,10.802946 0,5.664915 3.85557,10.734212 3.85557,10.734212 z m -7.19892,-12.86743 h 2.82958 c 0.83253,0 1.50172,-0.173884 2.00756,-0.521653 0.50585,-0.347769 0.75877,-0.858887 0.75877,-1.533345 0,-1.380531 -0.84834,-2.0708 -2.54503,-2.0708 h -3.05088 z m 32.37687,12.86743 -1.21719,-4.252264 h -5.7856 l -1.29623,4.252264 h -5.3746 l 6.67083,-21.577447 h 7.00279 l 6.74987,21.577447 z m -5.88045,-8.962943 h 3.5093 l -1.75465,-6.259831 z"
      id="path8-5"
-     style="fill:#ffffff;fill-opacity:1" />
+     style="fill:#ffffff;fill-opacity:1;stroke-width:0.899697" />
 </svg>
